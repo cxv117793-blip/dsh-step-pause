@@ -1,0 +1,17 @@
+# 依赖与构建产物
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+
+# 本地调试产物
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# 编辑器
+.vscode/
+.idea/
+
+# 个人截图 / 临时验证材料
+docs/_private/

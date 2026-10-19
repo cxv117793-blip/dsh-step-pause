@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Step Pause",
+    "description": "Pauses once every N agent steps to report progress in the conversation, then carries on with the task."
+  }
+}

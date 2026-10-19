@@ -1,0 +1,74 @@
+{
+  "name": "dsh-step-pause",
+  "version": "0.1.0",
+  "description": "每 N 个 agent 步骤暂停一次，在对话链里输出当前进度与正在做什么，说完自动继续任务。(DeepSeek Harness plugin: periodic in-chat progress checkpoints that do not block the turn.)",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE",
+    "docs/config-page.png"
+  ],
+  "scripts": {
+    "test": "node test/index.test.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "agent",
+    "progress",
+    "checkpoint",
+    "step"
+  ],
+  "license": "MIT",
+  "author": "cxv117793-blip",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cxv117793-blip/dsh-step-pause.git"
+  },
+  "homepage": "https://github.com/cxv117793-blip/dsh-step-pause#readme",
+  "bugs": {
+    "url": "https://github.com/cxv117793-blip/dsh-step-pause/issues"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.0-rc.2"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.2"
+  },
+  "devDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.5"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ]
+    },
+    "compatibility": {
+      "dshReleases": {
+        "0.2.0-rc.2": "compatible",
+        "0.2.1-rc.2": "compatible"
+      }
+    }
+  }
+}
