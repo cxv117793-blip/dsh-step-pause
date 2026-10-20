@@ -15,3 +15,6 @@ Thumbs.db
 
 # 个人截图 / 临时验证材料
 docs/_private/
+
+# npm pack 产物（发布用，不入库）
+*.tgz
