@@ -34,7 +34,7 @@ dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
 
 ## 配置
 
-装好后：`设置 → 插件 → 分步暂停 → › → 配置`。四个字段都带说明与草稿态：
+装好后：`设置 → 插件 → 分步暂停 → › → 配置`。五个字段都带说明与草稿态：
 
 | 键 | 默认 | 说明 |
 |---|---|---|
@@ -42,6 +42,7 @@ dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
 | `everyNSteps` | `10` | 每多少步汇报一次（按轮次内的步骤计，1–500） |
 | `maxReportsPerTurn` | `0` | 每轮最多汇报几次；`0` 表示不限制（兜底防失控轮次刷屏） |
 | `prompt` | 见下 | 注入的提示词，支持 `{{step}}` `{{every}}` `{{turn}}` |
+| `showPromptInChat` | `false` | 是否在对话里显示这段提示词原文。默认隐藏，只留你的进度小结；不影响模型收到指令 |
 
 改动**保存即生效，不用重启**：字段声明为 `volatile()`，主机每一步都重新读值。
 保存会写进当前 profile 的 `cordis.patch.yml`：
@@ -84,7 +85,7 @@ ctx.on('agent/pre-step', async (payload, next) => {
 计数用 `(turn, step)` 去重，换轮重置；`payload` 里带 `agent`，所以子 agent 也会各自计数
 （不想要就按 `agent.id` 过滤）。
 
-### 一个必须踩对的细节：`source.kind` 必须是 `user`
+### 一个必须踩对的细节：`source.kind` 决定这条消息显不显示
 
 DSH 客户端按消息来源决定怎么渲染（`dsh-client-ui-chat` 的 `input-message` 分类）：
 
@@ -93,9 +94,23 @@ if (event.data.source.kind !== "user") return { ...contextMessage(event, event.d
 return { kind: "user" /* 画成对话气泡 */ }
 ```
 
-也就是说，注入消息只要来源不是 `user`，就会变成内部 `context`，**功能正常但在聊天里完全看不见**。
-本项目第一版就栽在这里：模型收到了、行为也对，屏幕上却什么都没有。现在固定用
-`source: { kind: 'user' }`（不带 `form`），并把文案前缀写成 `[自动 · 分步暂停 · …]`，避免被误认成用户输入。
+降级成 `context` 之后，`isVisibleChatNode` 还会把普通 context 从可见行里过滤掉：
+
+```js
+node.kind !== "context" || node.data.content.some(b => b.type === "tool-addition" || b.type === "tool-removal")
+```
+
+所以就两个选项，没有第三条路：
+
+- `kind: 'user'` → 显示成一条用户气泡，**提示词原文全部可见**；
+- 其它值 → 归为 context，**对话里完全看不见**。
+
+两边都不影响模型：请求组装只看 `role`（见 `dsh-llm` 的 `createMessage`），
+所以 `showPromptInChat: false` 是"藏起来但照样生效"。
+
+本项目第一版用了 `kind: 'step-pause'`，模型收到了、行为也对，屏幕上却什么都没有，
+一度误判为"插件没生效"。现在默认 `showPromptInChat: false`（用 `kind: 'step-pause'` 隐藏原文），
+需要排查"到底注入了什么"时再把这个开关打开。
 
 ## 兼容性
 
@@ -109,6 +124,7 @@ return { kind: "user" /* 画成对话气泡 */ }
 - **按 step 计，不按「思考 token」计**：一次 step = 一次模型请求＋它的工具调用。每轮第 1 步不汇报。
 - **不是硬中断**：不会取消正在执行的工具，只在步骤边界插入。
 - **汇报会留在会话历史里**：它是真正的 user 消息，会进上下文、会被导出。想少留痕就把 N 调大。
+  提示词原文默认不在对话里显示（`showPromptInChat: false`），但它仍在会话事件里。
 - **子 agent 也汇报**：每个子 agent 独立计数，长任务里可能比你预期更频繁。
 - **不强制模型必须照做**：提示词是请求，极端情况下模型可能只回一句就继续。
 - **主机半边不会拖垮 profile**：加载失败只会被跳过并留一条 `dsh: warning`（用三个故意弄坏的插件实测过）。
@@ -120,11 +136,12 @@ return { kind: "user" /* 画成对话气泡 */ }
 
 ```bash
 npm install          # 只装 @deepseek-ai/schemastery（dev）
-npm test             # 10 组断言
+npm test             # 11 组断言
 ```
 
-测试覆盖：只在第 N 步注入、同步去重、消息形状与冻结、原批次不被改写、`reject`/`aborted` 透传、
-每轮配额重置、占位符渲染、`enabled: false` 不注入但保留注册、schema 默认值、运行中改配置立即生效。
+测试覆盖：只在第 N 步注入、同步去重、消息形状与冻结、`showPromptInChat` 两种来源、
+原批次不被改写、`reject`/`aborted` 透传、每轮配额重置、占位符渲染、
+`enabled: false` 不注入但保留注册、schema 默认值、运行中改配置立即生效。
 
 ```
 dsh-step-pause/

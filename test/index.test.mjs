@@ -59,9 +59,17 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
   assert.equal(m.content.length, 1)
   assert.equal(m.content[0].type, 'text')
   assert.ok(m.content[0].text.includes('第 2 步'), m.content[0].text.slice(0, 60))
-  // 必须是 user：客户端只把 user 来源渲染成对话气泡，其它来源会被归为 context 而不显示
-  assert.equal(m.source.kind, 'user')
+  // 默认隐藏：source.kind 不是 'user'，客户端会归为 context 且不渲染，
+  // 但 role 仍是 user，模型照常收到这条指令。
+  assert.equal(m.source.kind, 'step-pause')
   assert.ok(Object.isFrozen(m) && Object.isFrozen(m.content))
+}
+
+// 3b. showPromptInChat=true 时才用 kind:'user' 显示成可见气泡
+{
+  const run = setup({ everyNSteps: 1, showPromptInChat: true })
+  const d = await run(payloadOf(2), base)
+  assert.equal(d.messages[0].source.kind, 'user', '开启时应显示')
 }
 
 // 4. 保留原批次顺序，自己的消息追加在尾部
@@ -71,7 +79,7 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
   const d = await run(payloadOf(2), { kind: 'enter', messages: existing })
   assert.equal(d.messages.length, 2)
   assert.equal(d.messages[0], existing[0])
-  assert.equal(d.messages[1].source.kind, 'user')
+  assert.equal(d.messages[1].source.kind, 'step-pause')
   assert.deepEqual(existing, [{ id: 'x1', role: 'user', content: [], source: { kind: 'user' } }], '不得改动原批次')
 }
 
@@ -112,16 +120,17 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
   assert.equal(d, base)
 }
 
-// 9. 配置 schema：四个字段都是 .volatile()（设置页只认 volatile 字段），默认值不变
+// 9. 配置 schema：五个字段都是 .volatile()（设置页只认 volatile 字段），默认值不变
 {
   const defaults = Config({})
-  for (const key of ['enabled', 'everyNSteps', 'maxReportsPerTurn', 'prompt']) {
+  for (const key of ['enabled', 'everyNSteps', 'maxReportsPerTurn', 'prompt', 'showPromptInChat']) {
     assert.equal(typeof defaults[key], 'object', key + ' 应是 volatile 引用')
     assert.equal(typeof defaults[key].get, 'function', key + ' 应能 get()')
   }
   assert.equal(defaults.everyNSteps.get(), 10)
   assert.equal(defaults.enabled.get(), true)
   assert.equal(defaults.maxReportsPerTurn.get(), 0)
+  assert.equal(defaults.showPromptInChat.get(), false, '默认隐藏提示词原文')
   assert.ok(defaults.prompt.get().includes('{{step}}'))
 }
 
