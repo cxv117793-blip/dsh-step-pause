@@ -10,6 +10,15 @@
 
 ---
 
+## 宣传片（52 秒）
+
+[![宣传片封面](docs/promo/poster.png)](docs/promo/dsh-step-pause-promo-final.mp4)
+
+点封面看 52 秒 1080p 宣传片：痛点 → 原理 → 真机效果 → 配置页 → 能力清单。
+分镜总览见 [contact-sheet.png](docs/promo/contact-sheet.png)。
+
+---
+
 ## 它解决什么问题
 
 长任务跑到第 30、40 步时，你往往不知道它现在在干什么、卡在哪、还要多久。
