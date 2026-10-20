@@ -120,10 +120,17 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
   assert.equal(d, base)
 }
 
-// 9. 配置 schema：五个字段都是 .volatile()（设置页只认 volatile 字段），默认值不变
+// 9. 配置 schema：六个字段都是 .volatile()（设置页只认 volatile 字段），默认值不变
 {
   const defaults = Config({})
-  for (const key of ['enabled', 'everyNSteps', 'maxReportsPerTurn', 'prompt', 'showPromptInChat']) {
+  for (const key of [
+    'enabled',
+    'everyNSteps',
+    'maxReportsPerTurn',
+    'prompt',
+    'showPromptInChat',
+    'mainAgentOnly',
+  ]) {
     assert.equal(typeof defaults[key], 'object', key + ' 应是 volatile 引用')
     assert.equal(typeof defaults[key].get, 'function', key + ' 应能 get()')
   }
@@ -131,6 +138,7 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
   assert.equal(defaults.enabled.get(), true)
   assert.equal(defaults.maxReportsPerTurn.get(), 0)
   assert.equal(defaults.showPromptInChat.get(), false, '默认隐藏提示词原文')
+  assert.equal(defaults.mainAgentOnly.get(), true, '默认只在主智能体里汇报')
   assert.ok(defaults.prompt.get().includes('{{step}}'))
 }
 
@@ -153,6 +161,61 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
   options.enabled = false
   const off = await run(payloadOf(6), base)
   assert.equal(off.messages.length, 0, '关掉立即生效')
+}
+
+// 11. 子智能体不汇报，只有主智能体汇报（mainAgentOnly，默认开）
+{
+  const run = setup({ everyNSteps: 1 })
+  // 主智能体：没有 session header，或 header 里没有子会话标记
+  const mainAgent = { id: 'main', session: { header: { id: 's1', isSeeded: false } } }
+  const dMain = await run(payloadOf(2, 1, { agent: mainAgent }), base)
+  assert.equal(dMain.messages.length, 1, '主智能体照常汇报')
+
+  // 子智能体：origin === 'subagent'
+  const sub1 = { id: 'sub1', session: { header: { id: 's2', origin: 'subagent', parentSession: 's1' } } }
+  const dSub1 = await run(payloadOf(2, 1, { agent: sub1 }), base)
+  assert.equal(dSub1.messages.length, 0, '子智能体（origin）不汇报')
+
+  // 子智能体：delegationDepth > 0
+  const sub2 = { id: 'sub2', session: { header: { id: 's3', delegationDepth: 2 } } }
+  const dSub2 = await run(payloadOf(2, 1, { agent: sub2 }), base)
+  assert.equal(dSub2.messages.length, 0, '子智能体（delegationDepth）不汇报')
+
+  // 子智能体：只有 parentSession（旧版本 header）
+  const sub3 = { id: 'sub3', session: { header: { id: 's4', parentSession: 's1' } } }
+  const dSub3 = await run(payloadOf(2, 1, { agent: sub3 }), base)
+  assert.equal(dSub3.messages.length, 0, '子智能体（parentSession）不汇报')
+
+  // 读不到 header 时不要误伤：当作主智能体，照旧汇报
+  const broken = { id: 'b1', session: {} }
+  const dBroken = await run(payloadOf(2, 1, { agent: broken }), base)
+  assert.equal(dBroken.messages.length, 1, '读不到 header 时按主智能体处理')
+  const noSession = { id: 'n1' }
+  const dNoSession = await run(payloadOf(2, 1, { agent: noSession }), base)
+  assert.equal(dNoSession.messages.length, 1, '没有 session 时按主智能体处理')
+}
+
+// 11b. mainAgentOnly=false 时子智能体也汇报（旧行为，可切回去）
+{
+  const run = setup({ everyNSteps: 1, mainAgentOnly: false })
+  const sub = { id: 'sub', session: { header: { id: 's2', origin: 'subagent', parentSession: 's1' } } }
+  const d = await run(payloadOf(2, 1, { agent: sub }), base)
+  assert.equal(d.messages.length, 1, '关掉限制后子智能体也汇报')
+}
+
+// 11c. 主智能体与子智能体各自计数，互不干扰
+{
+  const run = setup({ everyNSteps: 3 })
+  const mainAgent = { id: 'main', session: { header: { id: 's1' } } }
+  const sub = { id: 'sub', session: { header: { id: 's2', origin: 'subagent' } } }
+  const mainSteps = []
+  const subSteps = []
+  for (let step = 1; step <= 6; step++) {
+    mainSteps.push((await run(payloadOf(step, 1, { agent: mainAgent }), base)).messages.length)
+    subSteps.push((await run(payloadOf(step, 1, { agent: sub }), base)).messages.length)
+  }
+  assert.deepEqual(mainSteps, [0, 0, 1, 0, 0, 1], '主智能体按自己的步数汇报')
+  assert.deepEqual(subSteps, [0, 0, 0, 0, 0, 0], '子智能体一次都不汇报')
 }
 
 console.log('all green')

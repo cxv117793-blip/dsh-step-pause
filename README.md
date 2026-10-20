@@ -44,7 +44,7 @@ dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
 
 ## 配置
 
-装好后：`设置 → 插件 → 分步暂停 → › → 配置`。五个字段都带说明与草稿态：
+装好后：`设置 → 插件 → 分步暂停 → › → 配置`。六个字段都带说明与草稿态：
 
 | 键 | 默认 | 说明 |
 |---|---|---|
@@ -53,6 +53,7 @@ dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
 | `maxReportsPerTurn` | `0` | 每轮最多汇报几次；`0` 表示不限制（兜底防失控轮次刷屏） |
 | `prompt` | 见下 | 注入的提示词，支持 `{{step}}` `{{every}}` `{{turn}}` |
 | `showPromptInChat` | `false` | 是否在对话里显示这段提示词原文。默认隐藏，只留你的进度小结；不影响模型收到指令 |
+| `mainAgentOnly` | `true` | 只在主智能体里汇报，子智能体一律不汇报。默认开：避免并行子任务各报一份 |
 
 改动**保存即生效，不用重启**：字段声明为 `volatile()`，主机每一步都重新读值。
 保存会写进当前 profile 的 `cordis.patch.yml`：
@@ -204,13 +205,16 @@ billion-context: import failed: client-modules: could not load "billion-context"
 
 同理，模型的思考过程（reasoning）再长，也只在一次请求内部，插件看不到、也切不进去。
 
-#### 4. 子 agent 各自独立计数，可能比你预期更频繁
+#### 4. 子 agent 各自独立计数（默认已关掉汇报）
 
 计数状态按 `payload.agent` 用 `WeakMap` 分开存，**每个子 agent 一套**。
-所以一个用了 5 个子 agent 的任务，屏幕上可能同时冒出 5 条不同进度的汇报，节奏还是各算各的。
 
-**缓解**：目前没有 `agent.id` 过滤的配置项（需要改代码）。不想要就只在主 agent 上开，
-或者把 N 调大。这条已记为待办。
+**默认已缓解**：`mainAgentOnly: true` 让子智能体一次都不汇报，只有你直接对话的主智能体出小结。
+判定依据是会话 header（`agent.session.header`）里的 `origin === 'subagent'`（`dsh-subagent`
+创建子会话时写入）、`delegationDepth > 0`、或非空 `parentSession`——三者任一成立即视为子智能体。
+读不到 header 时保守当作主智能体，绝不静默吞掉主智能体的进度。
+
+要恢复旧行为（每个智能体各报各的），把 `mainAgentOnly` 关掉即可。
 
 #### 5. 模型可以不照做；默认设置下你**看不见**它有没有触发
 
@@ -268,12 +272,13 @@ billion-context: import failed: client-modules: could not load "billion-context"
 
 ```bash
 npm install          # 只装 @deepseek-ai/schemastery（dev）
-npm test             # 11 组断言
+npm test             # 14 组断言
 ```
 
 测试覆盖：只在第 N 步注入、同步去重、消息形状与冻结、`showPromptInChat` 两种来源、
 原批次不被改写、`reject`/`aborted` 透传、每轮配额重置、占位符渲染、
-`enabled: false` 不注入但保留注册、schema 默认值、运行中改配置立即生效。
+`enabled: false` 不注入但保留注册、schema 默认值、运行中改配置立即生效、
+**子智能体不汇报（三种 header 判定 + 读不到 header 时不误伤 + 可关回旧行为）**。
 
 ```
 dsh-step-pause/
