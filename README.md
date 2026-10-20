@@ -211,7 +211,11 @@ billion-context: import failed: client-modules: could not load "billion-context"
 
 **默认已缓解**：`mainAgentOnly: true` 让子智能体一次都不汇报，只有你直接对话的主智能体出小结。
 判定依据是会话 header（`agent.session.header`）里的 `origin === 'subagent'`（`dsh-subagent`
-创建子会话时写入）、`delegationDepth > 0`、或非空 `parentSession`——三者任一成立即视为子智能体。
+创建子会话时写入）或 `delegationDepth > 0`——两者任一成立即视为子智能体。
+**不把非空 `parentSession` 当作依据**：用户手动 fork 出来的会话也有 `parentSession`，
+但它属于你自己会话的主智能体。本机 226 个真实会话日志验证过：111 个真子智能体
+全部满足前两个字段之一，3 个 fork 会话则是 `origin=undefined` / `delegationDepth=0`，
+按 `parentSession` 兜底会把它们误判成子智能体、导致分叉会话里永远不再汇报。
 读不到 header 时保守当作主智能体，绝不静默吞掉主智能体的进度。
 
 要恢复旧行为（每个智能体各报各的），把 `mainAgentOnly` 关掉即可。
@@ -278,7 +282,11 @@ npm test             # 14 组断言
 测试覆盖：只在第 N 步注入、同步去重、消息形状与冻结、`showPromptInChat` 两种来源、
 原批次不被改写、`reject`/`aborted` 透传、每轮配额重置、占位符渲染、
 `enabled: false` 不注入但保留注册、schema 默认值、运行中改配置立即生效、
-**子智能体不汇报（三种 header 判定 + 读不到 header 时不误伤 + 可关回旧行为）**。
+**子智能体不汇报（header 判定 + fork 不误伤 + 读不到 header 时不误伤 + 可关回旧行为）**。
+
+另有 `test/verify-subagent-real.mjs`：只读扫描本机真实会话日志（`~/.dsh/sessions/**/session.v4.jsonl.zstd`），
+用真实 header 调用插件里的 `isSubagent` 断言判定结果，避免用假数据自证。当前样本 226 个会话
+（111 个真子智能体 / 3 个 fork / 其余主智能体）全部通过。
 
 ```
 dsh-step-pause/

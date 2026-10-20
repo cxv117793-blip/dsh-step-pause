@@ -181,10 +181,11 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
   const dSub2 = await run(payloadOf(2, 1, { agent: sub2 }), base)
   assert.equal(dSub2.messages.length, 0, '子智能体（delegationDepth）不汇报')
 
-  // 子智能体：只有 parentSession（旧版本 header）
-  const sub3 = { id: 'sub3', session: { header: { id: 's4', parentSession: 's1' } } }
-  const dSub3 = await run(payloadOf(2, 1, { agent: sub3 }), base)
-  assert.equal(dSub3.messages.length, 0, '子智能体（parentSession）不汇报')
+  // fork（分叉会话）：有 parentSession 但没有 origin / delegationDepth，
+  // 它属于用户自己会话的主智能体，必须照常汇报（本机 226 个真实日志里 3 个都是这样）。
+  const fork = { id: 'fk', session: { header: { id: 's4', parentSession: 's1', isSeeded: true } } }
+  const dFork = await run(payloadOf(2, 1, { agent: fork }), base)
+  assert.equal(dFork.messages.length, 1, 'fork 会话按主智能体处理，照常汇报')
 
   // 读不到 header 时不要误伤：当作主智能体，照旧汇报
   const broken = { id: 'b1', session: {} }
