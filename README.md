@@ -10,11 +10,12 @@
 
 ---
 
-## 宣传片（52 秒）
+## 宣传片（52 秒 · 含配音与讲解员）
 
 [![宣传片封面](docs/promo/poster.png)](docs/promo/dsh-step-pause-promo-final.mp4)
 
-点封面看 52 秒 1080p 宣传片：痛点 → 原理 → 真机效果 → 配置页 → 能力清单。
+点封面看 52 秒 1080p 宣传片：痛点 → 原理 → 真机效果 → 配置页 → 能力清单 → 结尾。
+全片配中文旁白与同步字幕，左下角的「大肥鱼」讲解员会随音量点头、起浮、亮光晕。
 分镜总览见 [contact-sheet.png](docs/promo/contact-sheet.png)。
 
 ---
