@@ -44,7 +44,12 @@ dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
 
 ## 配置
 
-装好后：`设置 → 插件 → 分步暂停 → › → 配置`。六个字段都带说明与草稿态：
+两个入口，同一份表单（任何一处保存，另一处立刻同步）：
+
+- **侧边栏左下角头像 →「设置」→ 步数暂停**（`settings.section`，排在账号、模型这些官方段之后）
+- **设置 → 插件 → 分步暂停 → › → 配置**（插件页那一行）
+
+六个字段都带说明与草稿态：
 
 | 键 | 默认 | 说明 |
 |---|---|---|
@@ -210,13 +215,22 @@ billion-context: import failed: client-modules: could not load "billion-context"
 计数状态按 `payload.agent` 用 `WeakMap` 分开存，**每个子 agent 一套**。
 
 **默认已缓解**：`mainAgentOnly: true` 让子智能体一次都不汇报，只有你直接对话的主智能体出小结。
-判定依据是会话 header（`agent.session.header`）里的 `origin === 'subagent'`（`dsh-subagent`
-创建子会话时写入）或 `delegationDepth > 0`——两者任一成立即视为子智能体。
-**不把非空 `parentSession` 当作依据**：用户手动 fork 出来的会话也有 `parentSession`，
-但它属于你自己会话的主智能体。本机 226 个真实会话日志验证过：111 个真子智能体
-全部满足前两个字段之一，3 个 fork 会话则是 `origin=undefined` / `delegationDepth=0`，
-按 `parentSession` 兜底会把它们误判成子智能体、导致分叉会话里永远不再汇报。
-读不到 header 时保守当作主智能体，绝不静默吞掉主智能体的进度。
+判定走两道判据，任一能给出确定答案就用它：
+
+1. **会话 header**（`agent.session.header`）里的 `origin === 'subagent'`（`dsh-subagent`
+   创建子会话时写入）或 `delegationDepth > 0`——两者任一成立即视为子智能体。
+   **不把非空 `parentSession` 当作依据**：用户手动 fork 出来的会话也有 `parentSession`，
+   但它属于你自己会话的主智能体。本机 226 个真实会话日志验证过：111 个真子智能体
+   全部满足前两个字段之一，3 个 fork 会话则是 `origin=undefined` / `delegationDepth=0`，
+   按 `parentSession` 兜底会把它们误判成子智能体、导致分叉会话里永远不再汇报。
+2. **运行时归属**（`AgentRegistry.roots()`）——header 读不到或没写全时靠它兜底。
+   官方文档原话是「持久化的会话谱系不影响这个运行时关系，所以被恢复的 fork 仍可能是
+   root」，所以它和上面那条 fork 判据不冲突：在 roots 里的必是主智能体，不在的必是子智能体。
+
+这是 **v0.3.0 补上的泄漏面**：v0.2.1 在 header 缺失时保守回退为「主智能体」，
+于是任何没写 `origin` / `delegationDepth` 的派生路径（外部 SDK、IM 桥接）都会被灌入提示词。
+注册表也判不了（没注册表、roots 为空、不认识这个 id、调用抛错）时才回退为主智能体——
+原则仍是「实在不认识就照旧汇报」，绝不静默吞掉主智能体的进度。
 
 要恢复旧行为（每个智能体各报各的），把 `mainAgentOnly` 关掉即可。
 
@@ -276,24 +290,26 @@ billion-context: import failed: client-modules: could not load "billion-context"
 
 ```bash
 npm install          # 只装 @deepseek-ai/schemastery（dev）
-npm test             # 14 组断言
+npm test             # 19 组断言
 ```
 
 测试覆盖：只在第 N 步注入、同步去重、消息形状与冻结、`showPromptInChat` 两种来源、
 原批次不被改写、`reject`/`aborted` 透传、每轮配额重置、占位符渲染、
 `enabled: false` 不注入但保留注册、schema 默认值、运行中改配置立即生效、
-**子智能体不汇报（header 判定 + fork 不误伤 + 读不到 header 时不误伤 + 可关回旧行为）**。
+**子智能体不汇报**（header 判定 + fork 不误伤 + 读不到 header 且无注册表时不误伤 +
+header 缺失时靠 `AgentRegistry.roots()` 兜底 + 注册表判不了/抛错时不误伤 + header 优先于注册表 +
+可关回旧行为）。
 
 另有 `test/verify-subagent-real.mjs`：只读扫描本机真实会话日志（`~/.dsh/sessions/**/session.v4.jsonl.zstd`），
-用真实 header 调用插件里的 `isSubagent` 断言判定结果，避免用假数据自证。当前样本 226 个会话
-（111 个真子智能体 / 3 个 fork / 其余主智能体）全部通过。
+用真实 header 调用插件里的 `isSubagent` 断言判定结果，避免用假数据自证。当前样本 227 个会话
+（112 个真子智能体 / 3 个 fork / 其余主智能体）全部通过。
 
 ```
 dsh-step-pause/
 ├── package.json          # exports / files / dsh.bundle.patch / dsh.client / dsh.compatibility
 ├── cordis.patch.yml      # loader 补丁（一条 insert）
 ├── lib/index.js          # 主机逻辑：Config + agent/pre-step 监听
-├── lib/client.js         # 浏览器半边：注册「设置 → 插件 → 本插件 → 配置」页
+├── lib/client.js         # 浏览器半边：插件页配置页 + 侧边栏头像→设置 的配置段
 ├── locale/{zh,en}.json   # 插件页标题与描述
 ├── icon.svg              # 插件页图标
 ├── test/index.test.mjs   # 离线行为测试

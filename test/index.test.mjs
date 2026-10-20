@@ -6,15 +6,21 @@ import assert from 'node:assert/strict'
 import { apply, Config } from '../lib/index.js'
 
 const handlers = []
+/** 测试里可替换的 `agents` 服务；undefined 表示「注册表判不了」。 */
+let registryValue
 const fakeCtx = {
   on(name, fn, opts) {
     handlers.push({ name, fn, opts })
     return () => {}
   },
+  get(name) {
+    return name === 'agents' ? registryValue : undefined
+  },
 }
 
-function setup(config) {
+function setup(config, registry) {
   handlers.length = 0
+  registryValue = registry
   apply(fakeCtx, config)
   assert.equal(handlers.length, 1, '应只注册一个 pre-step 监听器')
   const h = handlers[0]
@@ -187,13 +193,85 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
   const dFork = await run(payloadOf(2, 1, { agent: fork }), base)
   assert.equal(dFork.messages.length, 1, 'fork 会话按主智能体处理，照常汇报')
 
-  // 读不到 header 时不要误伤：当作主智能体，照旧汇报
+  // 读不到 header 且注册表也判不了时不要误伤：当作主智能体，照旧汇报
   const broken = { id: 'b1', session: {} }
   const dBroken = await run(payloadOf(2, 1, { agent: broken }), base)
-  assert.equal(dBroken.messages.length, 1, '读不到 header 时按主智能体处理')
+  assert.equal(dBroken.messages.length, 1, '读不到 header 且无注册表时按主智能体处理')
   const noSession = { id: 'n1' }
   const dNoSession = await run(payloadOf(2, 1, { agent: noSession }), base)
-  assert.equal(dNoSession.messages.length, 1, '没有 session 时按主智能体处理')
+  assert.equal(dNoSession.messages.length, 1, '没有 session 且无注册表时按主智能体处理')
+}
+
+// 11d. header 缺失时靠运行时归属兜底（v0.3.0 修的泄漏面）
+// 旧版：读不到 header 就当成主智能体 → 没写 origin/delegationDepth 的派生路径
+// （外部 SDK、IM 桥接）会被灌入提示词。现在用 AgentRegistry.roots() 判归属。
+{
+  const subNoHeader = { id: 'sub-no-header', session: { id: 'sub-no-header' } }
+  // 注册表里它不在 roots → 是子 agent
+  const registry = {
+    roots: () => [{ id: 'main', session: { id: 'main' } }],
+    get: (id) => (id === 'sub-no-header' ? subNoHeader : undefined),
+  }
+  const run = setup({ everyNSteps: 1 }, registry)
+  const d = await run(payloadOf(2, 1, { agent: subNoHeader }), base)
+  assert.equal(d.messages.length, 0, 'header 缺失但注册表判定为子 agent 时不汇报')
+
+  // 同一个注册表里，root 里的主智能体照常汇报
+  const mainAgent = { id: 'main', session: { id: 'main' } }
+  const dMain = await run(payloadOf(2, 1, { agent: mainAgent }), base)
+  assert.equal(dMain.messages.length, 1, 'root 里的主智能体照常汇报')
+
+  // 没有 session 对象、只有 id 的 agent 也能靠注册表判定
+  const bare = { id: 'sub-no-header' }
+  const dBare = await run(payloadOf(2, 1, { agent: bare }), base)
+  assert.equal(dBare.messages.length, 0, '没有 session 时也能靠 id 判定为子 agent')
+}
+
+// 11e. 注册表判不了（禁用/未加载/不认识这个 id）时不误伤主智能体
+{
+  const mainAgent = { id: 'unknown', session: { id: 'unknown' } }
+  // 注册表不认识这个 id → 不下结论 → 回退「当作主智能体」
+  const registry = { roots: () => [{ id: 'main' }], get: () => undefined }
+  const run = setup({ everyNSteps: 1 }, registry)
+  const d = await run(payloadOf(2, 1, { agent: mainAgent }), base)
+  assert.equal(d.messages.length, 1, '注册表不认识这个 agent 时按主智能体处理')
+
+  // roots 为空（注册表还没登记任何 agent）同样不误伤
+  const emptyRegistry = { roots: () => [], get: () => undefined }
+  const run2 = setup({ everyNSteps: 1 }, emptyRegistry)
+  const d2 = await run2(payloadOf(2, 1, { agent: mainAgent }), base)
+  assert.equal(d2.messages.length, 1, 'roots 为空时按主智能体处理')
+
+  // 注册表本身抛错也不能弄坏主循环
+  const boomRegistry = {
+    roots: () => {
+      throw new Error('boom')
+    },
+    get: () => undefined,
+  }
+  const run3 = setup({ everyNSteps: 1 }, boomRegistry)
+  const d3 = await run3(payloadOf(2, 1, { agent: mainAgent }), base)
+  assert.equal(d3.messages.length, 1, '注册表抛错时按主智能体处理')
+
+  // agent 的 session.header 是 getter 且抛错时，也要能靠注册表判定
+  const throwyAgent = {
+    id: 'sub-no-header',
+    get session() {
+      throw new Error('session unavailable')
+    },
+  }
+  const run4 = setup({ everyNSteps: 1 }, registry)
+  const d4 = await run4(payloadOf(2, 1, { agent: throwyAgent }), base)
+  assert.equal(d4.messages.length, 1, 'header 读不到且注册表不认识该 id 时不误伤')
+}
+
+// 11f. header 明确说是子智能体时，优先级高于注册表（不必依赖注册表）
+{
+  const registry = { roots: () => [{ id: 'sub2', session: { id: 'sub2' } }], get: () => undefined }
+  const run = setup({ everyNSteps: 1 }, registry)
+  const sub = { id: 'sub2', session: { id: 'sub2', header: { id: 'sub2', origin: 'subagent' } } }
+  const d = await run(payloadOf(2, 1, { agent: sub }), base)
+  assert.equal(d.messages.length, 0, 'header 说是子智能体就按子智能体处理')
 }
 
 // 11b. mainAgentOnly=false 时子智能体也汇报（旧行为，可切回去）
