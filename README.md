@@ -1,12 +1,59 @@
 # dsh-step-pause
 
-每 N 个 agent 步骤**暂停一次**，在对话里用几行说明「正在做什么 / 已完成什么 / 接下来做什么 / 卡点」，
-说完**不停下来等确认**，直接继续原任务。
+> **每 N 步自动停下来汇报一次进度，说完立刻继续。**
+> 不占额外回合、不等你回复、不生成文档 —— 就几行对话正文。
 
-> Plugin for DeepSeek Harness: every N agent steps, interrupt the turn with a short progress
-> report, then keep going on its own. No document is produced — the report is plain chat text.
+[![v0.3.0](https://img.shields.io/badge/release-v0.3.0-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
+[![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.2-4d6bfe)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
+[![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
+[![tests](https://img.shields.io/badge/tests-19%20groups%20green-brightgreen)](https://github.com/cxv117793-blip/dsh-step-pause#开发)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+**中文** ｜ [English summary](#english-summary)
+
+长任务跑到第 30、40 步，你往往不知道它在干什么、卡在哪、还要多久。这个插件按固定节奏
+把进度**主动说出来**：正在做什么 / 已完成什么 / 接下来做什么 / 卡点 —— 然后接着干。
+
+```text
+进度小结（第 40 步）：
+1. 正在做什么：给设置页补上表格导出的失败重试
+2. 已完成什么：定位到 retry 没有重置 backoff；改了 3 处；单测补了 2 组
+3. 接下来做什么：跑全量测试，然后提交
+4. 卡点：无
+```
 
 ![插件页配置页](docs/config-page.png)
+
+---
+
+## 30 秒看懂
+
+| 你可能在想 | 实际情况 |
+|---|---|
+| 会不会多花一次模型调用？ | **不会**。消息追加进**本步**的输入批次，汇报和后续动作在同一次响应里完成，不产生额外回合 |
+| 会不会停下来等我点确认？ | **不会**。没有任何 `wait` / `ask` 语义，写完自己接着干 |
+| 会不会打断正在跑的工具？ | **也不会**，但代价是：一次 3 分钟的 `npm test` 期间它什么都说不了（它挂在两次思考之间的边界上） |
+| 会不会污染子任务？ | **默认不会**。`mainAgentOnly: true` 时子智能体一次都不注入（v0.3.0 起 header 读不到也**不注入**） |
+| 会不会把对话刷爆？ | 有 `maxReportsPerTurn` 兜底；提示词原文默认**隐藏**，对话里只留你写的进度小结 |
+| 提示词会不会覆盖我的格式要求？ | **有这个风险**，见[高风险第 2 条](#2-注入的是真正的-user-消息会永久写进会话历史并影响后续上下文)。缓解办法是把 N 调大、在提示词里显式声明"原任务约束仍然有效" |
+
+**默认节奏是每 10 步**，可在两个地方改，保存即生效、不用重启：
+侧边栏左下角头像 →「设置」→ 步数暂停，或 设置 → 插件 → 分步暂停 → `›` → 配置。
+
+## 安装
+
+桌面版**不要**用 `dsh plugin --profile desktop` 直接改 profile —— 它由应用内的插件管理器独占。二选一：
+
+1. **应用内安装**：`设置 → 插件 → 添加插件 → 从本地目录`，选这个仓库的根目录；
+2. **命令行**（只对非 desktop 的 profile）：
+
+```bash
+dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
+```
+
+也可以直接用 [Releases](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest) 里的 `.tgz`。
+
+装完按 `文件 → 退出` **完全退出应用**再启动（不是刷新页面）。
 
 ---
 
@@ -22,23 +69,9 @@
 
 ## 它解决什么问题
 
-长任务跑到第 30、40 步时，你往往不知道它现在在干什么、卡在哪、还要多久。
-这个插件按固定节奏把进度**主动说出来**，而且不需要你回一句话才继续：
-
 - 每满 N 步，往**当前步骤的输入批次**里追加一条消息，要求模型先汇报再继续；
 - 因为它属于「本步输入」而不是新任务，所以**不产生额外回合**，汇报和后续动作在同一次响应里完成；
 - 不会把任务挂成「等待用户确认」，也不会打断正在跑的工具调用（边界本来就是两次思考之间）。
-
-## 安装
-
-桌面版**不要**用 `dsh plugin --profile desktop` 直接改 profile —— 它由应用内的插件管理器独占。二选一：
-
-1. **应用内安装**：`设置 → 插件 → 添加插件 → 从本地目录`，选这个仓库的根目录；
-2. **命令行**（只对非 desktop 的 profile）：
-
-```bash
-dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
-```
 
 装完按 `文件 → 退出` **完全退出应用**再启动（不是刷新页面）。
 
@@ -306,18 +339,56 @@ header 缺失时靠 `AgentRegistry.roots()` 兜底 + 注册表判不了/抛错�
 
 ```
 dsh-step-pause/
-├── package.json          # exports / files / dsh.bundle.patch / dsh.client / dsh.compatibility
-├── cordis.patch.yml      # loader 补丁（一条 insert）
-├── lib/index.js          # 主机逻辑：Config + agent/pre-step 监听
-├── lib/client.js         # 浏览器半边：插件页配置页 + 侧边栏头像→设置 的配置段
-├── locale/{zh,en}.json   # 插件页标题与描述
-├── icon.svg              # 插件页图标
-├── test/index.test.mjs   # 离线行为测试
-└── docs/config-page.png  # 实测截图
+├── package.json               # exports / files / dsh.bundle.patch / dsh.client / dsh.compatibility
+├── cordis.patch.yml           # loader 补丁（一条 insert）
+├── lib/index.js               # 主机逻辑：Config + agent/pre-step 监听
+├── lib/client.js              # 浏览器半边：插件页配置页 + 侧边栏头像→设置 的配置段
+├── locale/{zh,en}.json        # 插件页标题与描述
+├── icon.svg                   # 插件页图标
+├── test/index.test.mjs        # 离线行为测试（19 组断言）
+├── test/verify-subagent-real.mjs  # 用本机真实会话日志验证子智能体判定
+└── docs/config-page.png       # 实测截图
 ```
 
 `cordis.patch.yml` 只插一条 loader 条目；**不要**把它手写进 profile 的 loader 列表，
 否则会撞 `duplicate loader entry id`。
+
+---
+
+## English summary
+
+**dsh-step-pause** is a plugin for [DeepSeek Harness](https://github.com/deepseek-ai) that
+periodically interrupts a long agent turn with a short progress report, then lets it carry on
+without waiting for you.
+
+Every N agent steps (default 10, configurable), it appends one message to the **current step's
+input batch** asking the model to state what it is doing, what it finished, what is next, and
+whether it is blocked — then continue immediately.
+
+Three properties matter:
+
+- **No extra turn.** The notice rides along with the step's existing input, so the report and the
+  next action happen in a single model response. No extra request, no extra cost.
+- **No blocking.** There is no `wait` or `ask` semantics anywhere. It never parks the task waiting
+  for confirmation.
+- **No documents.** The report is plain chat text. Nothing is written to disk.
+
+Defaults: hidden prompt (the injected text is not rendered in the chat, but the model still gets
+it), main agent only (subagents never receive it), and a per-turn cap you can set to avoid spam.
+
+**Configuration** lives in two places sharing one form: *sidebar avatar → Settings → Step Pause*,
+or *Settings → Plugins → dsh-step-pause → Configure*. Changes apply on save, no restart.
+
+Read the [Known issues and risks](#已知问题与风险) section before installing — in particular the
+first two high-risk items: a broken client half can white-screen the desktop window, and the
+injected message is a real `user` message that lands in session history.
+
+```bash
+# desktop: use Settings → Plugins → Add plugin → From local directory
+dsh plugin --profile <profile> add file:<absolute path to this repo>
+```
+
+Requires DeepSeek Harness `0.2.0-rc.2` / `0.2.1-rc.2` and Node `^22.19.0 || >=24.0.0`.
 
 ## License
 
