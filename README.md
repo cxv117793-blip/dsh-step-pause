@@ -159,6 +159,25 @@ node.kind !== "context" || node.data.content.some(b => b.type === "tool-addition
 一度误判为"插件没生效"。现在默认 `showPromptInChat: false`（用 `kind: 'step-pause'` 隐藏原文），
 需要排查"到底注入了什么"时再把这个开关打开。
 
+## 成本：它要多花多少钱
+
+实测（不是估算）：一次真实 1,560 步的会话里跑了 52 次汇报，
+插件累计增加 **37,706 输出 token**，占该会话总输出的 **4.24%**。
+
+| 项目 | 数值 |
+| --- | --- |
+| 一次汇报 | **0.002–0.003 元**（deepseek-flash 空闲时段）/ 0.004–0.006 元（高峰） |
+| 1,000 步 · N=20 | 约 **0.1 元** |
+| 1,000 步 · N=10 | 约 0.22 元 |
+| 注入提示本身 | 212 字符 ≈ 140 token（固定） |
+| 一次汇报的输出 | 中位 505 token，均值 725 token |
+
+成本与步数成正比、与 `everyNSteps` 成反比。
+注意：`showPromptInChat` 只影响界面显不显示，**不影响花费**。
+
+完整的推导、单价表、token 构成与复现方法见 **[docs/cost.md](docs/cost.md)**，
+复现脚本为 `node tools/cost-report.mjs <session.v4.jsonl.zstd>`（只读日志，不联网）。
+
 ## 兼容性
 
 - DSH `0.2.0-rc.2` 与 `0.2.1-rc.2` 上实测可用（`dsh.compatibility.dshReleases` 声明）；

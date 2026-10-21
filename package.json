@@ -18,7 +18,9 @@
     "icon.svg",
     "README.md",
     "LICENSE",
-    "docs/config-page.png"
+    "docs/config-page.png",
+    "docs/cost.md",
+    "tools"
   ],
   "scripts": {
     "test": "node test/index.test.mjs"
