@@ -3,7 +3,7 @@
  * 用法：npm test（或 node test/index.test.mjs）
  */
 import assert from 'node:assert/strict'
-import { apply, Config, shouldAutoResume } from '../lib/index.js'
+import { apply, Config, endedWithToolCall, shouldAutoResume } from '../lib/index.js'
 
 const handlers = []
 /** 测试里可替换的 `agents` 服务；undefined 表示「注册表判不了」。 */
@@ -39,12 +39,20 @@ function turnStoppingHandler() {
 /**
  * 一个能记录 steer 的假 agent。
  * 返回 { agent, steered }，steered 里是每次 steer 收到的消息。
+ *
+ * 默认让 `session.deriveMessages()` 返回「纯文本收尾」（最后一条 assistant 消息没有
+ * tool-call），因为插件的第五道刹车只在**确证是纯文本收尾**时才续跑——这也正是
+ * 本机 245 个真实会话里 14/14 次停止的共同形态。
  */
 function steerableAgent(extra = {}) {
   const steered = []
   const agent = {
     id: 'main',
-    session: { id: 'main', header: { id: 'main' } },
+    session: {
+      id: 'main',
+      header: { id: 'main' },
+      deriveMessages: () => [{ role: 'assistant', content: [{ type: 'text', text: '进度说明……' }] }],
+    },
     steer(message) {
       steered.push(message)
     },
@@ -469,7 +477,11 @@ async function stopAtCheckpoint(config, { step = 10, turn = 1, registry, resumea
   let calls = 0
   const agent = {
     id: 'main',
-    session: { id: 'main', header: { id: 'main' } },
+    session: {
+      id: 'main',
+      header: { id: 'main' },
+      deriveMessages: () => [{ role: 'assistant', content: [{ type: 'text', text: '进度说明……' }] }],
+    },
     steer() {
       calls += 1
       throw new Error('boom')
@@ -492,7 +504,15 @@ async function stopAtCheckpoint(config, { step = 10, turn = 1, registry, resumea
     resumedStep: 0,
   }
   const opts = { enabled: true, autoResume: true, maxAutoResumesPerTurn: 2 }
-  const baseInput = { state: okState, turn: 1, opts, aborted: false, isSubagent: false }
+  // endedWithToolCall: false = 确证是纯文本收尾（该救）；undefined / true 都不救。
+  const baseInput = {
+    state: okState,
+    turn: 1,
+    opts,
+    aborted: false,
+    isSubagent: false,
+    endedWithToolCall: false,
+  }
   assert.equal(shouldAutoResume(baseInput), true, '基准场景应续跑')
 
   assert.equal(shouldAutoResume({ ...baseInput, isSubagent: true }), false, '子智能体不续跑')
@@ -548,6 +568,99 @@ async function stopAtCheckpoint(config, { step = 10, turn = 1, registry, resumea
     true,
     '停在续跑之后的那一步时也应再救一次（受配额限制）',
   )
+}
+
+// 12n. 刹车五：以 tool call 收尾（工具自己结束了轮次）→ 不救，哪怕正停在检查点上
+{
+  const run = setup({ everyNSteps: 10 })
+  const { agent, steered } = steerableAgent({
+    session: {
+      id: 'main',
+      header: { id: 'main' },
+      // 最后一条 assistant 消息带 tool-call = 工具自己收尾，属正常结束。
+      deriveMessages: () => [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: '进度说明……' },
+            { type: 'tool-call', toolName: 'todo_write', input: {} },
+          ],
+        },
+      ],
+    },
+  })
+  const stop = turnStoppingHandler()
+  await run(payloadOf(10, 1, { agent }), base)
+  stop({ agent, turn: 1, signal: { aborted: false } })
+  assert.equal(steered.length, 0, '工具自己收尾时不许强行续跑')
+}
+
+// 12o. 刹车五的保守面：读不出结束形态（没有 deriveMessages / 抛错）→ 不救
+{
+  const run = setup({ everyNSteps: 10 })
+  const stop = turnStoppingHandler()
+
+  // 有 session 但没有 deriveMessages。
+  const noDerive = steerableAgent({ session: { id: 'main', header: { id: 'main' } } })
+  await run(payloadOf(10, 1, { agent: noDerive.agent }), base)
+  stop({ agent: noDerive.agent, turn: 1, signal: { aborted: false } })
+  assert.equal(noDerive.steered.length, 0, '读不出结束形态时宁可不救')
+
+  // deriveMessages 抛错。
+  const setup2 = setup({ everyNSteps: 10 })
+  const boomer = steerableAgent({
+    session: {
+      id: 'main',
+      header: { id: 'main' },
+      deriveMessages() {
+        throw new Error('boom')
+      },
+    },
+  })
+  await setup2(payloadOf(10, 1, { agent: boomer.agent }), base)
+  stop({ agent: boomer.agent, turn: 1, signal: { aborted: false } })
+  assert.equal(boomer.steered.length, 0, 'deriveMessages 抛错时宁可不救')
+
+  // 整个 agent 连 session 都没有。
+  const run3 = setup({ everyNSteps: 10 })
+  const bare = { id: 'main', steer() { bare.count = (bare.count ?? 0) + 1 } }
+  await run3(payloadOf(10, 1, { agent: bare }), base)
+  stop({ agent: bare, turn: 1, signal: { aborted: false } })
+  assert.equal(bare.count ?? 0, 0, '没有 session 时宁可不救')
+}
+
+// 12p. endedWithToolCall 纯函数直测
+{
+  const withTool = { session: { deriveMessages: () => [{ role: 'assistant', content: [{ type: 'tool-call' }] }] } }
+  const withoutTool = { session: { deriveMessages: () => [{ role: 'assistant', content: [{ type: 'text', text: 'x' }] }] } }
+  assert.equal(endedWithToolCall(withTool), true, '带 tool-call 判 true')
+  assert.equal(endedWithToolCall(withoutTool), false, '纯文本判 false')
+  assert.equal(endedWithToolCall(undefined), undefined, '没 agent 判不了')
+  assert.equal(endedWithToolCall({}), undefined, '没 session 判不了')
+  assert.equal(endedWithToolCall({ session: {} }), undefined, '没有 deriveMessages 判不了')
+  assert.equal(endedWithToolCall({ session: { deriveMessages: () => [] } }), undefined, '空历史判不了')
+  assert.equal(
+    endedWithToolCall({
+      session: {
+        deriveMessages: () => {
+          throw new Error('boom')
+        },
+      },
+    }),
+    undefined,
+    '抛错判不了',
+  )
+
+  // 尾部可能还挂着用户的续跑消息，要能跳过它们找到最后一条 assistant。
+  const trailingUser = {
+    session: {
+      deriveMessages: () => [
+        { role: 'assistant', content: [{ type: 'text', text: '进度' }] },
+        { role: 'user', content: [{ type: 'text', text: '[自动 · 分步暂停 · 续跑检查]' }] },
+      ],
+    },
+  }
+  assert.equal(endedWithToolCall(trailingUser), false, '跳过尾部 user 消息，取最后一条 assistant')
 }
 
 console.log('all green')
