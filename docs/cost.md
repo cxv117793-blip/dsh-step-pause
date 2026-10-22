@@ -23,13 +23,13 @@ DSH 把每次模型调用的用量记在会话日志里：
 
 （日志是多帧 zstd 拼接，标准解压器只吃第一帧，本仓库的脚本按帧魔数切开逐帧解。）
 
-**样本**：一次真实的 1,560 步长任务（就是开发这个插件的过程本身）。
+**样本**：一次真实的 2,428 步长任务（就是开发这个插件的过程本身）。
 
 | 项目 | 数量 |
 | --- | --- |
-| 模型步骤 | 1,560 |
-| 进度汇报 | 52 次 |
-| 注入提示 | 49 条（每条 212 字符） |
+| 模型步骤 | 2,428 |
+| 进度汇报 | 85 次 |
+| 注入提示 | 88 条（平均 162 token） |
 
 ---
 
@@ -37,13 +37,13 @@ DSH 把每次模型调用的用量记在会话日志里：
 
 | 指标 | 进度汇报 | 普通步骤 |
 | --- | --- | --- |
-| 输出 token（均值） | **725** | 565 |
-| 输出 token（中位） | **505** | 287 |
-| 文本字符（均值） | 509 | 47 |
+| 输出 token（均值） | **767** | 542 |
+| 输出 token（中位） | **482** | 255 |
+| 文本字符（均值） | 509 | 35 |
 
-- 注入提示：**212 字符 ≈ 140 token**，49 条实测长度完全一致
-- 52 次汇报累计输出 **37,706 token**，占该会话总输出（890,029）的 **4.24%**
-- 注入提示累计新增输入上下文：49 × 140 ≈ **6,860 token**
+- 注入提示：**平均 162 token/条**（88 条实测共 21,565 字符；提示词固定，长度几乎一致）
+- 85 次汇报累计输出 **65,213 token**，占该会话总输出（1,335,723）的 **4.88%**
+- 注入提示累计新增输入上下文：88 × 162 ≈ **14,256 token**
 
 ---
 
@@ -71,20 +71,20 @@ DSH 把每次模型调用的用量记在会话日志里：
 
 | 类型 | 数量 | 计费方式 |
 | --- | --- | --- |
-| 注入的提示词 | 140 token | 追加在缓存前缀之后 → **缓存未命中** |
-| 模型写的汇报 | 505（中位）～725（均值） | **输出** |
+| 注入的提示词 | 162 token | 追加在缓存前缀之后 → **缓存未命中** |
+| 模型写的汇报 | 482（中位）～767（均值） | **输出** |
 | 后续步骤重读 | 645 token × 剩余步数 | 进入缓存前缀 → **缓存命中** |
 
 **空闲时段**（按中位）：
 
 ```
-输入  140 × 1.00/1e6 = 0.00014 元
-输出  505 × 4.00/1e6 = 0.00202 元
-                 合计 ≈ 0.0022 元   （约 0.22 分钱）
+输入  162 × 1.00/1e6 = 0.00016 元
+输出  482 × 4.00/1e6 = 0.00193 元
+                 合计 ≈ 0.0021 元   （约 0.21 分钱）
 ```
 
-按均值：`140×1 + 725×4` = **0.0030 元**（0.3 分钱）。
-**高峰时段**：以上翻倍，**0.0043–0.0061 元**。
+按均值：`162×1 + 767×4` = **0.0032 元**（0.32 分钱）。
+**高峰时段**：以上翻倍，**0.0042–0.0064 元**。
 
 后续重读几乎不花钱：一次汇报后即使还剩 20 步，
 `20 × 645 × 0.02/1e6 ≈ 0.00026 元`，合 0.03 分钱。
@@ -97,10 +97,10 @@ DSH 把每次模型调用的用量记在会话日志里：
 
 | 任务步数 | N=10 | N=20（默认） |
 | --- | --- | --- |
-| 100 步 | 0.022 元 | 0.011 元 |
-| 500 步 | 0.108 元 | 0.054 元 |
-| 1,000 步 | 0.216 元 | 0.108 元 |
-| 5,000 步 | 1.080 元 | 0.540 元 |
+| 100 步 | 0.021 元 | 0.010 元 |
+| 500 步 | 0.104 元 | 0.052 元 |
+| 1,000 步 | 0.209 元 | 0.104 元 |
+| 5,000 步 | 1.044 元 | 0.522 元 |
 
 参照物：读一个中等大小的源码文件，一次就是 2,000–10,000 token。
 **一次汇报的开销，大约等于「读了三分之一个文件」。**
@@ -112,7 +112,7 @@ DSH 把每次模型调用的用量记在会话日志里：
 | 因素 | 影响 |
 | --- | --- |
 | `everyNSteps` 调大 | 成本**线性下降**（N=20 只有 N=10 的一半） |
-| 缩短 `prompt` | 只省输入那 140 token；把四条要求压成一行可降到 ~40 |
+| 缩短 `prompt` | 只省输入那 162 token；把四条要求压成一行可降到 ~40 |
 | 换 `deepseek-v4-pro` | 约 **3.4 倍** |
 | 高峰时段运行 | **2 倍** |
 | 打开 `showPromptInChat` | **不影响花费**，只影响界面显不显示 |
@@ -151,14 +151,14 @@ node tools/cost-report.mjs <路径> --model=pro
 
 ## English summary
 
-Measured from real DSH session logs (not estimates): over a 1,560-step session with
-52 progress reports injected every 20 steps, the plugin added **37,706 output tokens
-(4.24% of the session's total output)** plus **~6,860 input tokens**.
+Measured from real DSH session logs (not estimates): over a 2,428-step session with
+85 progress reports injected every 20 steps, the plugin added **65,213 output tokens
+(4.88% of the session's total output)** plus **~14,256 input tokens**.
 
 At `deepseek-flash` list prices (CNY per million tokens: input miss ¥1/¥2,
 cache hit ¥0.02/¥0.04, output ¥4/¥8, off-peak/peak), one report costs
-**≈ ¥0.002–0.003 off-peak** and **≈ ¥0.004–0.006 at peak** — about a fifth of
-a Chinese cent. A 1,000-step task with the default interval costs roughly **¥0.1**.
+**≈ ¥0.0021–0.0032 off-peak** and **≈ ¥0.0042–0.0064 at peak** — about a fifth of
+a Chinese cent. A 1,000-step task with the default interval costs roughly **¥0.10**.
 
 The cost scales linearly with step count and inversely with `everyNSteps`.
 Hiding the injected prompt (`showPromptInChat: false`) does **not** reduce cost:

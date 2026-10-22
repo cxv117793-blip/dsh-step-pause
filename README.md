@@ -14,6 +14,10 @@
 长任务跑到第 30、40 步，你往往不知道它在干什么、卡在哪、还要多久。这个插件按固定节奏
 把进度**主动说出来**：正在做什么 / 已完成什么 / 接下来做什么 / 卡点 —— 然后接着干。
 
+它已经在本机的 **247 个真实会话、21,833 个模型步骤**里跑了 **346 次汇报**，
+「说完就停」的比例从 **7.7% 降到 0.7%**，一次汇报约 **0.002 元**。
+数据来自会话日志逐帧解码，不是估算 —— 附录见 [实测数据](#实测数据本机跑出来的数字)。
+
 ```text
 进度小结（第 40 步）：
 1. 正在做什么：给设置页补上表格导出的失败重试
@@ -22,7 +26,7 @@
 4. 卡点：无
 ```
 
-![插件页配置页](docs/config-page.png)
+![设置 → 步数暂停：八个字段都带说明与草稿态](docs/config-page.png)
 
 ---
 
@@ -32,7 +36,7 @@
 |---|---|
 | 会不会多花一次模型调用？ | **不会**。消息追加进**本步**的输入批次，汇报和后续动作在同一次响应里完成，不产生额外回合 |
 | 会不会停下来等我点确认？ | **不会**。没有任何 `wait` / `ask` 语义，写完自己接着干 |
-| 那它会不会"说完就停"？ | 会有概率。没有工具调用的回复会让这一轮结束，实测占 8.2%。v0.4.0 用「提示词要求在回复里带工具调用」+「回合关闭前自动拉回」两层修掉，见 [docs/auto-resume.md](docs/auto-resume.md) |
+| 那它会不会"说完就停"？ | 会有概率：没有工具调用的回复会让这一轮结束，v0.4.0 之前实测 **7.7%**。v0.4.0 用「提示词要求在回复里带工具调用」+「回合关闭前自动拉回」两层修掉，实测降到 **0.7%**，见 [docs/auto-resume.md](docs/auto-resume.md) |
 | 会不会打断正在跑的工具？ | **也不会**，但代价是：一次 3 分钟的 `npm test` 期间它什么都说不了（它挂在两次思考之间的边界上） |
 | 会不会污染子任务？ | **默认不会**。`mainAgentOnly: true` 时子智能体一次都不注入（v0.3.0 起 header 读不到也**不注入**） |
 | 会不会把对话刷爆？ | 有 `maxReportsPerTurn` 兜底；提示词原文默认**隐藏**，对话里只留你写的进度小结 |
@@ -177,22 +181,50 @@ node.kind !== "context" || node.data.content.some(b => b.type === "tool-addition
 
 ## 成本：它要多花多少钱
 
-实测（不是估算）：一次真实 1,560 步的会话里跑了 52 次汇报，
-插件累计增加 **37,706 输出 token**，占该会话总输出的 **4.24%**。
+实测（不是估算）：一个真实 2,428 步的会话里跑了 85 次汇报，
+插件累计增加 **65,213 输出 token**，占该会话总输出的 **4.88%**。
 
 | 项目 | 数值 |
 | --- | --- |
-| 一次汇报 | **0.002–0.003 元**（deepseek-flash 空闲时段）/ 0.004–0.006 元（高峰） |
-| 1,000 步 · N=20 | 约 **0.1 元** |
-| 1,000 步 · N=10 | 约 0.22 元 |
-| 注入提示本身 | 212 字符 ≈ 140 token（固定） |
-| 一次汇报的输出 | 中位 505 token，均值 725 token |
+| 一次汇报 | **0.0021–0.0032 元**（deepseek-flash 空闲时段）/ 约 2 倍（高峰） |
+| 1,000 步 · N=20 | 约 **0.10 元** |
+| 1,000 步 · N=10 | 约 0.21 元 |
+| 注入提示本身 | 约 161 token（固定） |
+| 一次汇报的输出 | 中位 482 token，均值 767 token |
 
 成本与步数成正比、与 `everyNSteps` 成反比。
 注意：`showPromptInChat` 只影响界面显不显示，**不影响花费**。
 
 完整的推导、单价表、token 构成与复现方法见 **[docs/cost.md](docs/cost.md)**，
 复现脚本为 `node tools/cost-report.mjs <session.v4.jsonl.zstd>`（只读日志，不联网）。
+
+## 实测数据：本机跑出来的数字
+
+![本机实测](docs/measurements.png)
+
+数据来自本机 `~/.dsh/sessions/**/session.v4.jsonl.zstd`（逐帧 zstd 解码后统计），
+统计时点 2026-10-22：
+
+| 指标 | 数值 | 口径 |
+| --- | --- | --- |
+| 会话日志 | 247 个（118 子智能体 / 129 主智能体，0 个解析失败） | `test/verify-subagent-real.mjs` |
+| 累计模型步骤 | **21,833 步** | 所有会话的 `step/end` 计数 |
+| 自动插入的汇报 | **346 次**，分布在 **21 个**会话 | 匹配注入消息的 `source` |
+| 单个会话最多 | 2,407 步 / 135 次汇报 | `session-f02b9f10…` |
+| 「说完就停」比例 | v0.4.0 之前 **207 个检查点 / 16 次 = 7.7%**<br>v0.4.0 之后 **139 个检查点 / 1 次 = 0.7%** | 按 Release 发布时间切分 |
+| 注入提示开销 | 约 **161 token / 条** | 实测 88 条提示共 21,565 字符 |
+| 汇报输出占比 | **4.88%** 的会话总输出 | 单会话 2,428 步 / 85 次汇报 |
+
+两个可以直接复现的脚本：
+
+```bash
+node test/verify-subagent-real.mjs     # 子智能体判定：真实 header 逐条断言
+node test/verify-autoresume-real.mjs   # 「说完就停」比例与续跑触发次数
+```
+
+> 样本会随你继续使用而增长，跑上面两个脚本得到的数字会比表里的更新。
+> 「自动续跑触发：0」在刚升级完是正常的 —— 说明还没跑到过一个会停的检查点。
+
 
 ## 兼容性
 
@@ -325,8 +357,9 @@ billion-context: import failed: client-modules: could not load "billion-context"
 #### 8. 自动续跑会在你正要停的时候把轮次拉回来
 
 `autoResume: true`（默认开）时，如果这一轮**恰好结束在刚汇报完的那一步**，插件会在回合关闭前
-往里塞一条续跑提示，把这一轮重新拉起来。这是为了治"说了就停"（实测占 8.2%，且 100% 都停在那一步，
-详见 [docs/auto-resume.md](docs/auto-resume.md)）。
+往里塞一条续跑提示，把这一轮重新拉起来。这是为了治"说了就停"（v0.4.0 之前实测 **7.7%**；
+早期 170 个检查点的样本里，14 次停止 **14 次全部**落在注入提示词的那一步，详见
+[docs/auto-resume.md](docs/auto-resume.md)）。
 
 它确实是在跟用户抢方向盘，所以有六道刹车，任何一条不满足就放手：
 
@@ -393,11 +426,11 @@ header 缺失时靠 `AgentRegistry.roots()` 兜底 + 注册表判不了/抛错�
 不干预时原样返回同一个对象））。
 
 另有 `test/verify-subagent-real.mjs`：只读扫描本机真实会话日志（`~/.dsh/sessions/**/session.v4.jsonl.zstd`），
-用真实 header 调用插件里的 `isSubagent` 断言判定结果，避免用假数据自证。当前样本 246 个会话
+用真实 header 调用插件里的 `isSubagent` 断言判定结果，避免用假数据自证。当前样本 247 个会话
 （118 个真子智能体 / 4 个 fork / 其余主智能体）全部通过。
 
 还有 `test/verify-autoresume-real.mjs`：同样只读扫本机日志，统计「说了就停」的实际比例
-（截至写稿时 201 个检查点里 14 次，7.0%；样本随日志增长会变）并统计自动续跑触发了几次、触发后这一轮是否真的继续干活。
+（截至写稿时 210 个检查点里 14 次，6.7%；样本随日志增长会变）并统计自动续跑触发了几次、触发后这一轮是否真的继续干活。
 **它只统计已经发生过的事**——刚升级完看到「自动续跑触发：0」是正常的，那说明新版本还没跑到过
 一个会停的检查点。
 
@@ -444,12 +477,22 @@ Defaults: hidden prompt (the injected text is not rendered in the chat, but the 
 it), main agent only (subagents never receive it), and a per-turn cap you can set to avoid spam.
 
 **Auto-resume.** A reply with no tool call ends the turn — and a "just write 5-10 lines of progress"
-reply is exactly that, so it used to stop 8.2% of the time, 100% of those on the checkpoint step.
+reply is exactly that, so it used to stop 7.7% of the time, 100% of those on the checkpoint step.
+After v0.4.0 the measured rate is 0.7% (207 checkpoints before vs 139 after the release).
 Two layers fix it: the prompt now also demands a real tool call in the same reply, and a
 `agent/turn-stopping` listener steers the turn back open when it stops right on a checkpoint.
-Four brakes keep it from fighting you: only rescue on the checkpoint step, at most
+Six brakes keep it from fighting you: only rescue on the checkpoint step, at most
 `maxAutoResumesPerTurn` rescues per turn (default 2, `0` disables), never revive an aborted turn,
-never touch subagents. See [docs/auto-resume.md](docs/auto-resume.md).
+never touch subagents, only rescue a reply that ended without any tool call (a tool that called
+`concludeTurn()` — or one we cannot read — is left alone), and back off the moment the model says
+"任务已完成 / all done". See [docs/auto-resume.md](docs/auto-resume.md).
+
+**Measured, not estimated.** On this machine, across 247 real session logs (21,833 model steps,
+346 injected checkpoints in 21 sessions), a report costs about **0.0021–0.0032 CNY** on
+`deepseek-flash` idle pricing — roughly 0.10 CNY per 1,000 steps at the default N=20. Reports make
+up 4.88% of a long session's output tokens. Reproduce with
+`node tools/cost-report.mjs <session.v4.jsonl.zstd>`, `node test/verify-subagent-real.mjs`, and
+`node test/verify-autoresume-real.mjs`.
 
 **Configuration** lives in two places sharing one form: *sidebar avatar → Settings → Step Pause*,
 or *Settings → Plugins → dsh-step-pause → Configure*. Changes apply on save, no restart.

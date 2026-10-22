@@ -13,11 +13,13 @@
 | 范围 | 检查点数 | 说了就停 | 停率 |
 |---|---|---|---|
 | 单个高频会话 | 23 | 5 | 21.7% |
-| 全部 20 个会话 | 170 | 14 | 8.2% |
+| 全部 20 个会话（诊断时的样本） | 170 | 14 | 8.2% |
+| 全部会话（后来复跑，样本更大） | 207 | 16 | 7.7% |
 
-单看 8% 好像还能忍。但把「停在哪一步」也对齐之后，结论就变了：
+单看 7–8% 好像还能忍。但把「停在哪一步」也对齐之后，结论就变了：
 
-> **14 次停止，14 次（100%）都恰好结束在注入汇报提示词的那一步。**
+> **诊断样本里的 14 次停止，14 次（100%）都恰好结束在注入汇报提示词的那一步。**
+> （换成全量样本复跑后是 16/16，形态完全一样。）
 
 这不是模型随机不听话，是结构决定的。
 
@@ -111,7 +113,7 @@ const atResumedStep = Number.isInteger(state.resumedStep) && state.step === stat
 if (!atCheckpoint && !atResumedStep) return false
 ```
 
-只有「这一轮刚刚结束的那一步，正好是注入汇报提示词的那一步」才考虑续跑。这精确对应实测里 14/14 的形态。
+只有「这一轮刚刚结束的那一步，正好是注入汇报提示词的那一步」才考虑续跑。这精确对应实测里「14 次停止全部落在检查点」的形态。
 
 如果模型汇报完又干了七八步才自然收尾（任务真做完了），那**不是**我们要救的场景，绝不干预。
 
@@ -157,7 +159,7 @@ if (endedByTool !== false) return false // 只有确证是纯文本收尾才救�
 
 真机复现：任务「依次创建 3 个文件」，N=2。第 6 步模型已经写完总结、`task` 工具也报告完成，插件还是连 steer 两次，白烧两个配额。加上这道刹车后同样的任务在第 7 步干净结束。
 
-真机实测过滤这道刹车的价值：本机 245 个会话、184 次注入、14 次真实停止，**14/14 全部是纯文本收尾，工具收尾 0 次** ⇒ 这道刹车在真实数据上零误伤。
+真机实测过滤这道刹车的价值：本机 245 个会话、184 次注入、14 次真实停止，**14 次全部是纯文本收尾，工具收尾 0 次** ⇒ 这道刹车在真实数据上零误伤。
 
 ### 刹车六：模型自己说「任务已完成」就放手
 
@@ -227,7 +229,7 @@ const COMPLETION_MARKERS = [
 
 ## English summary
 
-**Problem.** After the plugin asks the model to summarise progress, the turn sometimes just ends. Measured on this machine's real session logs: 14 of 170 checkpoints (8.2%) ended without continuing — and **all 14 ended exactly on the step where the prompt was injected**.
+**Problem.** After the plugin asks the model to summarise progress, the turn sometimes just ends. Measured on this machine's real session logs: 14 of 170 checkpoints (8.2%) ended without continuing — and **all 14 ended exactly on the step where the prompt was injected**. Re-running the same check over a larger sample gives 16 of 207 (7.7%), same shape; after v0.4.0 the measured rate is **1 of 139 (0.7%)**.
 
 **Root cause.** `dsh-agent-loop`'s `step()` marks a turn `completed` whenever the reply contains no `tool-call` block. A well-behaved "write 5-10 lines of progress" reply is plain text, so it always trips that rule. No amount of "please keep going" in the prompt can beat that check.
 
@@ -235,10 +237,12 @@ const COMPLETION_MARKERS = [
 
 **Fix 2 (hard backstop).** Listen on `agent/turn-stopping`. The driver awaits that event *before* re-checking whether `next-step` is empty, so a `steer()` from the listener keeps the turn open — documented as "can be kept open by steering".
 
-**Four brakes, all defaulting to "let it end":**
-1. Only rescue when the turn stopped exactly on the checkpoint step (the 14/14 shape).
+**Six brakes, all defaulting to "let it end":**
+1. Only rescue when the turn stopped exactly on the checkpoint step (the shape seen in all 14/14 stops of the diagnostic sample).
 2. At most `maxAutoResumesPerTurn` rescues per turn (default 2; `0` disables), reset each turn.
 3. Never revive a turn whose signal was aborted.
 4. Never touch child agents.
+5. Only rescue a reply that ended **without any tool call** — a tool that called `concludeTurn()`, or a state we cannot read, is left alone.
+6. Back off as soon as the model's closing line says "任务已完成 / all done".
 
 The resume prompt is a hard-coded constant, deliberately not configurable, because it carries the "this is genuinely finished" exit that keeps the loop from becoming endless.
