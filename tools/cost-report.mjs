@@ -200,7 +200,7 @@ console.log(`- 本会话 ${checkpoints.length} 次汇报合计：**${costOf(ckTo
 console.log(`- 缓存命中读取（几乎不花钱）：全程 ${totalHit} token 命中，按 ${hit}元/M 计 = ${((totalHit * hit) / 1e6).toFixed(4)} 元（含非插件内容）`)
 console.log()
 console.log('### 规模换算\n')
-console.log('| 任务步数 | N=10 | N=20（默认） |')
+console.log('| 任务步数 | N=10（默认） | N=20 |')
 console.log('| --- | --- | --- |')
 for (const steps_ of [100, 500, 1000, 5000]) {
   const perReport = costOf(avgInjectedTokens, midOut)

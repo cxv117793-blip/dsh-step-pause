@@ -190,6 +190,19 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
   assert.equal(defaults.autoResume.get(), true, '默认开启自动续跑')
   assert.equal(defaults.maxAutoResumesPerTurn.get(), 2, '默认每轮最多续跑 2 次')
   assert.ok(defaults.prompt.get().includes('{{step}}'))
+
+  // schema 的下界停在 1（不是 2）：0.4.1 及以前允许写 everyNSteps: 1，
+  // 若在 schema 上收紧到 2，这些老配置会在加载期被 schemastery 直接拒掉，
+  // 整个插件条目起不来。向后兼容优先 —— 由 resolveOptions 在运行时夹到 2。
+  assert.equal(Config({ everyNSteps: 1 }).everyNSteps.get(), 1, '老配置 everyNSteps: 1 必须仍能加载')
+  assert.throws(() => Config({ everyNSteps: 0 }), /expected number >= 1/)
+  assert.throws(() => Config({ everyNSteps: 501 }), /expected number <= 500/)
+
+  // 上界同理：0.4.1 的两个上限字段没有 .max()，存量配置可能超出现值。
+  // schema 放行，clampInt 在运行时夹到 [0,1000] / [0,20]，不能让老配置加载失败。
+  assert.equal(Config({ maxReportsPerTurn: 5000 }).maxReportsPerTurn.get(), 5000)
+  assert.equal(Config({ maxAutoResumesPerTurn: 99 }).maxAutoResumesPerTurn.get(), 99)
+  assert.throws(() => Config({ maxReportsPerTurn: -1 }), /expected number >= 0/)
 }
 
 // 10. 运行中改配置立即生效（volatile 引用是活的，不需要重新加载插件）
