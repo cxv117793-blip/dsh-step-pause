@@ -52,7 +52,17 @@
 dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
 ```
 
-也可以直接用 [Releases](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest) 里的 `.tgz`。
+也可以直接用 [Releases](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest) 里的 `.tgz`：
+
+```bash
+# 固定别名，永远指向最新版（市场与脚本都用这条）
+https://github.com/cxv117793-blip/dsh-step-pause/releases/latest/download/dsh-step-pause.tgz
+
+# 带版本号（钉死到某个版本时用）
+https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.4.1/dsh-step-pause-0.4.1.tgz
+```
+
+> 桌面版的安装框支持「npm 包、Git 仓库和本地目录」，把上面这条 URL 粘进去即可。
 
 装完按 `文件 → 退出` **完全退出应用**再启动（不是刷新页面）。
 
