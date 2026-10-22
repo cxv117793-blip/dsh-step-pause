@@ -128,7 +128,7 @@ if (used >= limit) return false
 
 换轮时 `autoResumes` 归零（新的一轮重新发配额）。这是用户明确要求的「小心让对话无法停止」的最后一道硬闸。
 
-记账发生在 `steer()` **之前**：即使 steer 抛错也不会重复计数导致超配额。
+记账发生在 `steer()` **之前**：即使 steer 抛错也不会重复计数导致超配额。失败时只回滚 `pendingResume`（否则下一步会被误当成「刚从续跑回来」，污染 `resumedStep` 判据），**配额照样消耗** —— 让「steer 一直失败」这种异常也被上限硬性封顶，而不是无限重试。
 
 ### 刹车三：用户已经取消，绝不复活
 
@@ -169,12 +169,19 @@ if (endedByTool !== false) return false // 只有确证是纯文本收尾才救�
 
 ```js
 const COMPLETION_MARKERS = [
-  '任务已完成', '任务已全部完成', '已全部完成', '全部完成',
-  'task complete', 'task is complete', 'all done', 'all tasks are complete',
+  '任务已完成', '任务已全部完成', '已全部完成', '全部完成', '全部做完', '全部搞定',
+  'task complete', 'task completed', 'task is complete',
+  'all done', 'all finished', 'all tasks are complete', 'everything is done',
 ]
 ```
 
 判据：`if (declaredDone === true) return false`。读不出、抛错一律按「没宣告完成」处理——方向是保守的：宁可多跑一步，也不误判完成把活丢下。
+
+三条约束缺一不可（前两条是初版，第三条是修 bug 补的）：
+
+1. **marker 必须收在句末**，后面最多跟几个语气尾巴（4 个字符内，如「全部做完了，收工」）。出现在句子中间的多半是在描述标准或写说明书。
+2. **marker 紧前面不能是否定词**（`尚未|还没|没有|不是|并未|未|not|isn't|aren't|n't`）。`'全部完成'` 是「尚未**全部完成**」的子串、`'all done'` 是「not **all done** yet」的子串 —— 少了这条，「尚未全部完成，下一步继续处理 t3」会被判成已完成，第六道刹车恰恰在最该救的时刻放手。
+3. **marker 之后不能再出现「继续/接下来/下一步/还要/仍需/接着」**。`'全部完成，现在继续创建 t4.txt。'` 不是宣告。唯一豁免是 `'无需继续'` 这类被否掉的收尾从句（`NO_NEED_TAIL` 先剥掉再判），否则「原任务确实已全部完成，无需继续。」会被误拒。
 
 > 只看最后一条**有内容的行**，而不是「整段最后 30 个字符」。第一版用的后者，在 `'任务已完成的意思是全部做完。\n现在继续创建 t4.txt。'` 上会误判成完成——那句「任务已完成」是在写说明，不是在宣告。
 
@@ -223,7 +230,7 @@ const COMPLETION_MARKERS = [
 - 判定逻辑：`lib/index.js` 的 `shouldAutoResume()`、`RESUME_PROMPT`、`agent/turn-stopping` 监听
 - 提示词：`lib/index.js` 的 `DEFAULT_PROMPT`
 - 设置页控件：`lib/client.js`（`autoResume` 开关 与 `maxAutoResumesPerTurn` 数字框）
-- 测试：`test/index.test.mjs` 第 12 组（12a–12s），覆盖六条刹车、配额耗尽、换轮重置、与 steer 抛错、`endedWithToolCall` 与 `declaredComplete` 的直测
+- 测试：`test/index.test.mjs` 第 12 组（12a–12s），覆盖六条刹车、配额耗尽、换轮重置、与 steer 抛错、`endedWithToolCall` 与 `declaredComplete` 的直测；第 13 组是「不改下游决策」的契约测试（`startsRequestSeries` / 未知字段必须原样保留、不就地修改下游对象、不干预时返回同一对象）
 
 ---
 

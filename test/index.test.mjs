@@ -93,7 +93,7 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
 
 // 3. 消息形状与不可变性
 {
-  const run = setup({ everyNSteps: 1 })
+  const run = setup({ everyNSteps: 2 })
   const d = await run(payloadOf(2), base)
   assert.equal(d.messages.length, 1)
   const m = d.messages[0]
@@ -111,14 +111,14 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
 
 // 3b. showPromptInChat=true 时才用 kind:'user' 显示成可见气泡
 {
-  const run = setup({ everyNSteps: 1, showPromptInChat: true })
+  const run = setup({ everyNSteps: 2, showPromptInChat: true })
   const d = await run(payloadOf(2), base)
   assert.equal(d.messages[0].source.kind, 'user', '开启时应显示')
 }
 
 // 4. 保留原批次顺序，自己的消息追加在尾部
 {
-  const run = setup({ everyNSteps: 1 })
+  const run = setup({ everyNSteps: 2 })
   const existing = [{ id: 'x1', role: 'user', content: [], source: { kind: 'user' } }]
   const d = await run(payloadOf(2), { kind: 'enter', messages: existing })
   assert.equal(d.messages.length, 2)
@@ -129,7 +129,7 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
 
 // 5. reject / aborted / 非 enter 一律原样返回
 {
-  const run = setup({ everyNSteps: 1 })
+  const run = setup({ everyNSteps: 2 })
   const reject = { kind: 'reject' }
   assert.equal(await run(payloadOf(2), reject), reject)
   const aborted = await run(payloadOf(2, 1, { signal: { aborted: true } }), base)
@@ -140,13 +140,15 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
 
 // 6. 每个轮次重置计数与汇报配额
 {
-  const run = setup({ everyNSteps: 1, maxReportsPerTurn: 2 })
+  // N=2 + 每轮上限 1：第 2 步报一次用掉配额，第 4 步同为检查点但配额已满 → 不报。
+  // 换轮后配额重置，第 2 步又能报一次。
+  const run = setup({ everyNSteps: 2, maxReportsPerTurn: 1 })
   const counts = []
-  for (const [turn, step] of [[1, 1], [1, 2], [1, 3], [2, 1], [2, 2], [2, 3]]) {
+  for (const [turn, step] of [[1, 1], [1, 2], [1, 3], [1, 4], [2, 1], [2, 2], [2, 3], [2, 4]]) {
     const d = await run(payloadOf(step, turn), base)
     counts.push(d.messages.length)
   }
-  assert.deepEqual(counts, [0, 1, 1, 0, 1, 1], '每轮最多 2 次（第 1 步不报），换轮重置')
+  assert.deepEqual(counts, [0, 1, 0, 0, 0, 1, 0, 0], '每轮最多 1 次（第 1 步不报），换轮重置')
 }
 
 // 7. 自定义提示词占位符
@@ -158,7 +160,7 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
 
 // 8. enabled=false 仍然注册，但一次都不注入（可以热开关，不用重载插件）
 {
-  const run = setup({ enabled: false, everyNSteps: 1 })
+  const run = setup({ enabled: false, everyNSteps: 2 })
   const d = await run(payloadOf(2), base)
   assert.equal(d.messages.length, 0, '关掉后不注入')
   assert.equal(d, base)
@@ -213,7 +215,7 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
 
 // 11. 子智能体不汇报，只有主智能体汇报（mainAgentOnly，默认开）
 {
-  const run = setup({ everyNSteps: 1 })
+  const run = setup({ everyNSteps: 2 })
   // 主智能体：没有 session header，或 header 里没有子会话标记
   const mainAgent = { id: 'main', session: { header: { id: 's1', isSeeded: false } } }
   const dMain = await run(payloadOf(2, 1, { agent: mainAgent }), base)
@@ -254,7 +256,7 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
     roots: () => [{ id: 'main', session: { id: 'main' } }],
     get: (id) => (id === 'sub-no-header' ? subNoHeader : undefined),
   }
-  const run = setup({ everyNSteps: 1 }, registry)
+  const run = setup({ everyNSteps: 2 }, registry)
   const d = await run(payloadOf(2, 1, { agent: subNoHeader }), base)
   assert.equal(d.messages.length, 0, 'header 缺失但注册表判定为子 agent 时不汇报')
 
@@ -274,13 +276,13 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
   const mainAgent = { id: 'unknown', session: { id: 'unknown' } }
   // 注册表不认识这个 id → 不下结论 → 回退「当作主智能体」
   const registry = { roots: () => [{ id: 'main' }], get: () => undefined }
-  const run = setup({ everyNSteps: 1 }, registry)
+  const run = setup({ everyNSteps: 2 }, registry)
   const d = await run(payloadOf(2, 1, { agent: mainAgent }), base)
   assert.equal(d.messages.length, 1, '注册表不认识这个 agent 时按主智能体处理')
 
   // roots 为空（注册表还没登记任何 agent）同样不误伤
   const emptyRegistry = { roots: () => [], get: () => undefined }
-  const run2 = setup({ everyNSteps: 1 }, emptyRegistry)
+  const run2 = setup({ everyNSteps: 2 }, emptyRegistry)
   const d2 = await run2(payloadOf(2, 1, { agent: mainAgent }), base)
   assert.equal(d2.messages.length, 1, 'roots 为空时按主智能体处理')
 
@@ -291,7 +293,7 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
     },
     get: () => undefined,
   }
-  const run3 = setup({ everyNSteps: 1 }, boomRegistry)
+  const run3 = setup({ everyNSteps: 2 }, boomRegistry)
   const d3 = await run3(payloadOf(2, 1, { agent: mainAgent }), base)
   assert.equal(d3.messages.length, 1, '注册表抛错时按主智能体处理')
 
@@ -302,7 +304,7 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
       throw new Error('session unavailable')
     },
   }
-  const run4 = setup({ everyNSteps: 1 }, registry)
+  const run4 = setup({ everyNSteps: 2 }, registry)
   const d4 = await run4(payloadOf(2, 1, { agent: throwyAgent }), base)
   assert.equal(d4.messages.length, 1, 'header 读不到且注册表不认识该 id 时不误伤')
 }
@@ -310,7 +312,7 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
 // 11f. header 明确说是子智能体时，优先级高于注册表（不必依赖注册表）
 {
   const registry = { roots: () => [{ id: 'sub2', session: { id: 'sub2' } }], get: () => undefined }
-  const run = setup({ everyNSteps: 1 }, registry)
+  const run = setup({ everyNSteps: 2 }, registry)
   const sub = { id: 'sub2', session: { id: 'sub2', header: { id: 'sub2', origin: 'subagent' } } }
   const d = await run(payloadOf(2, 1, { agent: sub }), base)
   assert.equal(d.messages.length, 0, 'header 说是子智能体就按子智能体处理')
@@ -318,7 +320,7 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
 
 // 11b. mainAgentOnly=false 时子智能体也汇报（旧行为，可切回去）
 {
-  const run = setup({ everyNSteps: 1, mainAgentOnly: false })
+  const run = setup({ everyNSteps: 2, mainAgentOnly: false })
   const sub = { id: 'sub', session: { header: { id: 's2', origin: 'subagent', parentSession: 's1' } } }
   const d = await run(payloadOf(2, 1, { agent: sub }), base)
   assert.equal(d.messages.length, 1, '关掉限制后子智能体也汇报')
@@ -723,6 +725,23 @@ async function stopAtCheckpoint(config, { step = 10, turn = 1, registry, resumea
     }),
     true,
     '跳过尾部 user 消息，取最后一条 assistant',
+  )
+
+  // 否定词：marker 是纯子串，'全部完成' 正好在「尚未全部完成」里。
+  // 少这道检查，插件会在最该续跑的时刻放手。
+  assert.equal(declaredComplete(withText('尚未全部完成，下一步继续处理 t3。')), false, '「尚未全部完成」不是完成')
+  assert.equal(declaredComplete(withText('还没全部完成')), false, '「还没全部完成」不是完成')
+  assert.equal(declaredComplete(withText('not all done yet')), false, '「not all done」不是完成')
+
+  // marker 后面还跟着「继续/接下来」：那是在说下一步，不是在收尾。
+  assert.equal(declaredComplete(withText('全部完成，现在继续创建 t4.txt。')), false, '宣告后还要继续，不算收尾')
+  assert.equal(declaredComplete(withText('任务已完成。接下来处理 t5。')), false, '「接下来」同理')
+
+  // 但被否掉的「无需继续」是收尾的一部分，不能因此误拒。
+  assert.equal(
+    declaredComplete(withText('原任务确实已全部完成，无需继续。')),
+    true,
+    '「无需继续」不应被当成还要干活',
   )
 }
 

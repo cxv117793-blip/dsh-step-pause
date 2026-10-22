@@ -3,7 +3,7 @@
 > **每 N 步自动停下来汇报一次进度，说完立刻继续。**
 > 不占额外回合、不等你回复、不生成文档 —— 就几行对话正文。
 
-[![v0.4.1](https://img.shields.io/badge/release-v0.4.1-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
+[![v0.4.2](https://img.shields.io/badge/release-v0.4.2-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.2-4d6bfe)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![tests](https://img.shields.io/badge/tests-38%20groups%20green-brightgreen)](https://github.com/cxv117793-blip/dsh-step-pause#开发)
@@ -63,7 +63,7 @@ dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
 https://github.com/cxv117793-blip/dsh-step-pause/releases/latest/download/dsh-step-pause.tgz
 
 # 带版本号（钉死到某个版本时用）
-https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.4.1/dsh-step-pause-0.4.1.tgz
+https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.4.2/dsh-step-pause-0.4.2.tgz
 ```
 
 > 桌面版的安装框支持「npm 包、Git 仓库和本地目录」，把上面这条 URL 粘进去即可。
@@ -100,8 +100,8 @@ https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.4.1/dsh-st
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `enabled` | `true` | 总开关。关掉后插件仍然加载，但不再汇报 |
-| `everyNSteps` | `10` | 每多少步汇报一次（按轮次内的步骤计，1–500） |
-| `maxReportsPerTurn` | `0` | 每轮最多汇报几次；`0` 表示不限制（兜底防失控轮次刷屏） |
+| `everyNSteps` | `10` | 每多少步汇报一次（按轮次内的步骤计，2–500；1 会退化成每步都报，被禁止） |
+| `maxReportsPerTurn` | `0` | 每轮最多汇报几次；`0` 表示不限制（兜底防失控轮次刷屏，上限 1000） |
 | `prompt` | 见下 | 注入的提示词，支持 `{{step}}` `{{every}}` `{{turn}}` |
 | `showPromptInChat` | `false` | 是否在对话里显示这段提示词原文。默认隐藏，只留你的进度小结；不影响模型收到指令 |
 | `mainAgentOnly` | `true` | 只在主智能体里汇报，子智能体一律不汇报。默认开：避免并行子任务各报一份 |
@@ -342,12 +342,13 @@ billion-context: import failed: client-modules: could not load "billion-context"
 
 排查时把 `showPromptInChat` 打开，就能看到注入的原文（会让对话里多一条用户气泡）。
 
-#### 6. 每轮第 1 步不汇报；`everyNSteps: 1` 也是从第 2 步开始
+#### 6. 每轮第 1 步不汇报；`everyNSteps` 最小是 2
 
 计数从 1 起、只在 `step % N === 0` 时触发，第 1 步被显式跳过。所以：
 
 - 默认 N=10 → 实际在第 10、20、30… 步汇报；
-- N=1 → 不是"每步都报"，而是第 2、3、4… 步都报（第 1 步仍然跳过）。
+- N 不能设成 1：`step % 1 === 0` 恒成立，会让第 2 步起每步都插一条汇报，等于把
+  上下文撑成进度日志。schema 与输入框都限定 `2..500`。
 
 #### 7. 计数状态在内存里，重启就没了
 
@@ -379,6 +380,7 @@ billion-context: import failed: client-modules: could not load "billion-context"
 | # | 问题 | 说明 |
 |---|---|---|
 | 9 | `maxReportsPerTurn` 只按轮计数，不受 `everyNSteps` 变化影响 | 中途把 `everyNSteps` 调小，本轮的计数不会重置，配额仍然按轮算。属设计取舍。 |
+| 9b | 数字框留空 = 回落到默认值 | 清空「每多少步汇报一次」再保存，写的是 `unset`（删掉该键），恢复成 schema 默认的 10，而不是 0。改完后设置页会立刻显示回落后的值。 |
 | 10 | `Boolean("false")` 是 `true` | 手写 `cordis.patch.yml` 时若写成 `enabled: "false"`（带引号的字符串），`Boolean("false") === true`，开关会失效。写裸的 `false` 才对。 |
 | 11 | 测试覆盖不到真实生命周期 | `test/index.test.mjs` 的 `fakeCtx` 只实现了 `on()`，没有 `effect()`/dispose，所以"插件卸载时监听是否干净移除"这条**没有测**（依赖 cordis 的作用域自动 dispose，理论上没问题，但没有测试兜底）。 |
 | 12 | 兼容性只声明到 `0.2.1-rc.2` | `dsh.compatibility.dshReleases` 只写了 `0.2.0-rc.2` / `0.2.1-rc.2`。更新的 DSH 上如果 `agent/pre-step` 或 `agent/turn-stopping` 的 payload 形状变了，插件**不会报错，只会静默不生效**。 |
