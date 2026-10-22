@@ -149,7 +149,9 @@ const { concluded } = await executeToolCalls(...)
 return concluded ? { kind: 'completed' } : null                  // 工具自己宣布收尾
 ```
 
-`turn-stopping` 的 payload 只有 `{turn, signal}`，**拿不到是哪一种**。所以插件自己去会话历史里看：`endedWithToolCall(agent)` 从 `agent.session.deriveMessages()` 尾部倒着找最后一条 assistant 消息，看 `content` 里有没有 `tool-call`。
+`turn-stopping` 的 payload 只有 `{turn, signal}`，**拿不到是哪一种**。所以插件自己去会话历史里看：`endedWithToolCall(agent, messages)` 从会话历史尾部倒着找最后一条 assistant 消息（尾部可能还挂着我们的续跑消息或工具结果，要跳过），看 `content` 里有没有 `tool-call`。
+
+第六道刹车（`declaredComplete`）要读同一份历史，而 `deriveMessages()` **每次调用都返回一个新数组**，所以在 `turn-stopping` 里只取一次快照、传给两个判据：`deriveSessionMessages(agent)` → `endedWithToolCall(agent, messages)` / `declaredComplete(agent, messages)`。两个函数各自也接受省略 `messages`，那时自己再去读一次（单测里直测纯函数时就走这条）。
 
 ```js
 if (endedByTool !== false) return false // 只有确证是纯文本收尾才救；读不出来也不救
@@ -230,7 +232,7 @@ const COMPLETION_MARKERS = [
 - 判定逻辑：`lib/index.js` 的 `shouldAutoResume()`、`RESUME_PROMPT`、`agent/turn-stopping` 监听
 - 提示词：`lib/index.js` 的 `DEFAULT_PROMPT`
 - 设置页控件：`lib/client.js`（`autoResume` 开关 与 `maxAutoResumesPerTurn` 数字框）
-- 测试：`test/index.test.mjs` 第 12 组（12a–12s），覆盖六条刹车、配额耗尽、换轮重置、与 steer 抛错、`endedWithToolCall` 与 `declaredComplete` 的直测；第 13 组是「不改下游决策」的契约测试（`startsRequestSeries` / 未知字段必须原样保留、不就地修改下游对象、不干预时返回同一对象）
+- 测试：`test/index.test.mjs` 第 12 组（12a–12u），覆盖六条刹车、配额耗尽、换轮重置、与 steer 抛错、`endedWithToolCall` 与 `declaredComplete` 的直测、两个判据共用同一份会话快照、没有 agent 时不串号；第 13 组是「不改下游决策」的契约测试（`startsRequestSeries` / 未知字段必须原样保留、不就地修改下游对象、不干预时返回同一对象）
 
 ---
 

@@ -785,6 +785,52 @@ async function stopAtCheckpoint(config, { step = 10, turn = 1, registry, resumea
   assert.equal(shouldAutoResume({ ...baseInput, declaredDone: undefined }), true, '未提供该字段时按未宣告处理')
 }
 
+// 12t. 两个判据共用同一份会话快照（每次 turn-stopping 只 deriveMessages 一次）
+{
+  const run = setup({ everyNSteps: 10 })
+  let derivations = 0
+  const { agent, steered } = steerableAgent({
+    session: {
+      id: 'main',
+      header: { id: 'main' },
+      deriveMessages() {
+        derivations += 1
+        return [{ role: 'assistant', content: [{ type: 'text', text: '进度说明……' }] }]
+      },
+    },
+  })
+  const stop = turnStoppingHandler()
+  await run(payloadOf(10, 1, { agent }), base)
+  stop({ agent, turn: 1, signal: { aborted: false } })
+  assert.equal(derivations, 1, '一次 turn-stopping 只翻一遍会话历史')
+  assert.equal(steered.length, 1, '纯文本收尾照常救回来')
+
+  // 传了快照就不该再去问 session。
+  const snapshot = [{ role: 'assistant', content: [{ type: 'text', text: '任务已完成。' }] }]
+  const untouched = {
+    session: {
+      id: 'main',
+      deriveMessages() {
+        throw new Error('不该被调用：传了快照还去读 session')
+      },
+    },
+  }
+  assert.equal(endedWithToolCall(untouched, snapshot), false, '快照优先，不碰 session')
+  assert.equal(declaredComplete(untouched, snapshot), true, '快照优先，不碰 session')
+}
+
+// 12u. 没有 agent 的步骤不会串号（每次拿到的都是一份全新状态）
+{
+  const run = setup({ everyNSteps: 10 })
+  const decider = await Promise.all([
+    run(payloadOf(10, 1, { agent: undefined }), base),
+    run(payloadOf(10, 1, { agent: undefined }), base),
+  ])
+  assert.equal(decider[0].messages.length, 1, '没有 agent 时仍然按步数插入')
+  assert.equal(decider[1].messages.length, 1, '两次调用各自独立，都算首次')
+}
+
+
 // 13. 修饰决策时必须保留下游的其它字段（官方 agent-lifecycle 契约：
 //     「listeners wrapping next() preserve downstream messages and startsRequestSeries
 //      unless replacement is intentional」）。

@@ -6,7 +6,7 @@
 [![v0.4.2](https://img.shields.io/badge/release-v0.4.2-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.2-4d6bfe)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
-[![tests](https://img.shields.io/badge/tests-38%20groups%20green-brightgreen)](https://github.com/cxv117793-blip/dsh-step-pause#开发)
+[![tests](https://img.shields.io/badge/tests-40%20groups%20green-brightgreen)](https://github.com/cxv117793-blip/dsh-step-pause#开发)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **中文** ｜ [English summary](#english-summary)
@@ -410,7 +410,7 @@ billion-context: import failed: client-modules: could not load "billion-context"
 
 ```bash
 npm install          # 只装 @deepseek-ai/schemastery（dev）
-npm test             # 38 组断言
+npm test             # 40 组断言
 ```
 
 测试覆盖：只在第 N 步注入、同步去重、消息形状与冻结、`showPromptInChat` 两种来源、
@@ -424,6 +424,8 @@ header 缺失时靠 `AgentRegistry.roots()` 兜底 + 注册表判不了/抛错�
 换轮重置配额、payload 为空/无 `steer`/`steer` 抛错时不往外抛、抛错时也不会超配额、
 **只救纯文本收尾**（带 tool call 收尾不救、三种读不出形态都不救、`endedWithToolCall` 直测）、
 **模型宣告完成就放手**（`declaredComplete` 直测 11 条、宣告后不 steer、`declaredDone` 判据直测）、
+**两个判据共用一份会话快照**（一次 `turn-stopping` 只翻一遍历史、传了快照就不再问 session）、
+**没有 agent 的步骤不串号**、
 **不改下游决策的其它字段**（`startsRequestSeries` 与未知字段原样保留、不就地改下游对象、
 不干预时原样返回同一个对象））。
 
@@ -444,7 +446,7 @@ dsh-step-pause/
 ├── lib/client.js              # 浏览器半边：插件页配置页 + 侧边栏头像→设置 的配置段
 ├── locale/{zh,en}.json        # 插件页标题与描述
 ├── icon.svg                   # 插件页图标
-├── test/index.test.mjs        # 离线行为测试（38 组断言）
+├── test/index.test.mjs        # 离线行为测试（40 组断言）
 ├── test/verify-subagent-real.mjs  # 用本机真实会话日志验证子智能体判定
 ├── docs/config-page.png       # 实测截图
 ├── docs/cost.md               # 它要多花多少钱：实测与定价换算
