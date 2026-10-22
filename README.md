@@ -380,6 +380,11 @@ header 缺失时靠 `AgentRegistry.roots()` 兜底 + 注册表判不了/抛错�
 用真实 header 调用插件里的 `isSubagent` 断言判定结果，避免用假数据自证。当前样本 227 个会话
 （112 个真子智能体 / 3 个 fork / 其余主智能体）全部通过。
 
+还有 `test/verify-autoresume-real.mjs`：同样只读扫本机日志，统计「说了就停」的实际比例
+（当前 177 个检查点里 14 次，7.9%）并统计自动续跑触发了几次、触发后这一轮是否真的继续干活。
+**它只统计已经发生过的事**——刚升级完看到「自动续跑触发：0」是正常的，那说明新版本还没跑到过
+一个会停的检查点。
+
 ```
 dsh-step-pause/
 ├── package.json               # exports / files / dsh.bundle.patch / dsh.client / dsh.compatibility
