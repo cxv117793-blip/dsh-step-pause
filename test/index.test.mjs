@@ -182,7 +182,7 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
     assert.equal(typeof defaults[key], 'object', key + ' 应是 volatile 引用')
     assert.equal(typeof defaults[key].get, 'function', key + ' 应能 get()')
   }
-  assert.equal(defaults.everyNSteps.get(), 10)
+  assert.equal(defaults.everyNSteps.get(), 20, '0.4.5 起默认每 20 步汇报一次')
   assert.equal(defaults.enabled.get(), true)
   assert.equal(defaults.maxReportsPerTurn.get(), 0)
   assert.equal(defaults.showPromptInChat.get(), false, '默认隐藏提示词原文')
@@ -769,6 +769,39 @@ async function stopAtCheckpoint(config, { step = 10, turn = 1, registry, resumea
   // 尾部长度只按真正的字算：标点不该吃掉「语气尾巴」的额度。
   assert.equal(declaredComplete(withText('（任务已完成）')), true, '括号包住的宣告也认')
   assert.equal(declaredComplete(withText('✅ 任务已完成 ✅')), true, '带装饰符的宣告也认')
+}
+
+// 12q2. 开头宣告：模型习惯先下结论、再补细节，这种也要认出来
+{
+  const withText = (text) => ({ session: { id: 'm', header: { id: 'm' }, deriveMessages: () => [{ role: 'assistant', content: [{ type: 'text', text }] }] } })
+  // 三条真实样本（session-a721cb0e 误续跑那三次的原文）
+  assert.equal(
+    declaredComplete(withText('任务已完成。\n\n- 已完成什么：我逐个单独调用了写文件工具…\n- 核对结果：…COUNT=20。\n- 接下来做什么：无。\n- 卡点：无。')),
+    true,
+    '首行宣告 + 后面跟要点，必须认',
+  )
+  assert.equal(
+    declaredComplete(withText('任务已完成。20 个文件均已逐个通过写文件工具创建完成，并用 ls 核对，COUNT=20。无后续操作。')),
+    true,
+    '首行宣告 + 一段补充说明，必须认',
+  )
+  assert.equal(
+    declaredComplete(withText('任务已完成。已单独创建 a/n01.txt 至 a/n20.txt…无需继续操作。')),
+    true,
+    '首行宣告 + 省略号补充，必须认',
+  )
+  // 开头是别的话，不能因为正文里出现「任务已完成」就判完成
+  assert.equal(
+    declaredComplete(withText('我先说明一下：任务已完成的部分我已经写好了，接下来继续做剩下的。')),
+    false,
+    '铺垫半句再说完成，不算',
+  )
+  // 文件名的点不能被当成句子边界（`a/n01.txt` 里的 `.`）：整句都在说要继续，就要判 false
+  assert.equal(
+    declaredComplete(withText('创建完 a/n01.txt 后接下来继续创建 a/n02.txt。')),
+    false,
+    '文件名里的点不能把句子切碎，从而漏掉「接下来继续」',
+  )
 }
 
 // 12r. 刹车六：模型宣告完成后，即使停在检查点也不救

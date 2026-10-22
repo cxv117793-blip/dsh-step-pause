@@ -3,10 +3,10 @@
 > **每 N 步自动停下来汇报一次进度，说完立刻继续。**
 > 不占额外回合、不等你回复、不生成文档 —— 就几行对话正文。
 
-[![v0.4.4](https://img.shields.io/badge/release-v0.4.4-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
+[![v0.4.5](https://img.shields.io/badge/release-v0.4.5-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.2-4d6bfe)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
-[![tests](https://img.shields.io/badge/tests-40%20groups%20green-brightgreen)](https://github.com/cxv117793-blip/dsh-step-pause#开发)
+[![tests](https://img.shields.io/badge/tests-41%20groups%20green-brightgreen)](https://github.com/cxv117793-blip/dsh-step-pause#开发)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **中文** ｜ [English summary](#english-summary)
@@ -42,7 +42,7 @@
 | 会不会把对话刷爆？ | 有 `maxReportsPerTurn` 兜底；提示词原文默认**隐藏**，对话里只留你写的进度小结 |
 | 提示词会不会覆盖我的格式要求？ | **有这个风险**，见[高风险第 2 条](#2-注入的是真正的-user-消息会永久写进会话历史并影响后续上下文)。缓解办法是把 N 调大、在提示词里显式声明"原任务约束仍然有效" |
 
-**默认节奏是每 10 步**，可在两个地方改，保存即生效、不用重启：
+**默认节奏是每 20 步**，可在两个地方改，保存即生效、不用重启：
 侧边栏左下角头像 →「设置」→ 步数暂停，或 设置 → 插件 → 分步暂停 → `›` → 配置。
 
 ## 安装
@@ -63,7 +63,7 @@ dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
 https://github.com/cxv117793-blip/dsh-step-pause/releases/latest/download/dsh-step-pause.tgz
 
 # 带版本号（钉死到某个版本时用）
-https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.4.4/dsh-step-pause-0.4.4.tgz
+https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.4.5/dsh-step-pause-0.4.5.tgz
 ```
 
 > 桌面版的安装框支持「npm 包、Git 仓库和本地目录」，把上面这条 URL 粘进去即可。
@@ -100,7 +100,7 @@ https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.4.4/dsh-st
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `enabled` | `true` | 总开关。关掉后插件仍然加载，但不再汇报 |
-| `everyNSteps` | `10` | 每多少步汇报一次（按轮次内的步骤计，实际生效 2–500；写 1 会被夹成 2） |
+| `everyNSteps` | `20` | 每多少步汇报一次（按轮次内的步骤计，实际生效 2–500；写 1 会被夹成 2） |
 | `maxReportsPerTurn` | `0` | 每轮最多汇报几次；`0` 表示不限制（兜底防失控轮次刷屏，上限 1000） |
 | `prompt` | 见下 | 注入的提示词，支持 `{{step}}` `{{every}}` `{{turn}}` |
 | `showPromptInChat` | `false` | 是否在对话里显示这段提示词原文。默认隐藏，只留你的进度小结；不影响模型收到指令 |
@@ -124,16 +124,20 @@ https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.4.4/dsh-st
 
 ```text
 [自动 · 分步暂停 · 第 {{step}} 步（每 {{every}} 步一次）]
-用 5-10 行说明当前进度，然后**在同一条回复里接着发出下一个工具调用**：
-1. 正在做什么：当前任务与所处步骤
-2. 已完成什么：本轮已完成的动作或产出
-3. 接下来做什么：下一步计划
+这是插件插入的一次性检查点：只在**这一条回复**里写一次进度小结，写完立刻继续干活。
+后面的步骤不要再重复汇报，也不要维护、推算或标注步数。
+
+这一条回复里写清四件事（合计 10 行以内）：
+1. 正在做什么：当前任务与所处阶段
+2. 已完成什么：本轮做完的 2-4 件具体事
+3. 接下来做什么：下一步要动的那个动作
 4. 卡点：需要我决策或补充信息的地方（没有就写「无」）
 
-写法要求：
-- 进度说明直接在回复正文里写，不要新建或修改任何文档/计划文件；
-- 这条回复必须以一次真实的工具调用结束（继续读文件、跑命令、调子智能体等），
-  不要只用文字收尾——没有工具调用的回复会让这一轮就此结束；
+硬性写法：
+- 直接写在回复正文里，不要新建或修改任何文档/计划文件；
+- 这一条回复必须以一次真实的工具调用结束（读文件、跑命令、调子智能体等）。
+  没有工具调用的回复会让这一轮就此结束；
+- 不要给这段小结加「进度（第 N 步）」这类系列标题，它只是一次插话，不是固定格式；
 - 只有原任务确实已经全部做完时，才允许纯文字收尾，并明确写「任务已完成」。
 ```
 
@@ -187,7 +191,7 @@ node.kind !== "context" || node.data.content.some(b => b.type === "tool-addition
 | 项目 | 数值 |
 | --- | --- |
 | 一次汇报 | **0.0021–0.0032 元**（deepseek-flash 空闲时段）/ 约 2 倍（高峰） |
-| 1,000 步 · N=20 | 约 **0.10 元** |
+| 1,000 步 · N=20（默认） | 约 **0.10 元** |
 | 1,000 步 · N=10 | 约 0.21 元 |
 | 注入提示本身 | 约 161 token（固定） |
 | 一次汇报的输出 | 中位 482 token，均值 767 token |
@@ -203,7 +207,7 @@ node.kind !== "context" || node.data.content.some(b => b.type === "tool-addition
 ![本机实测](docs/measurements.png)
 
 数据来自本机 `~/.dsh/sessions/**/session.v4.jsonl.zstd`（逐帧 zstd 解码后统计），
-统计时点 2026-10-22：
+统计时点 2026-10-23：
 
 | 指标 | 数值 | 口径 |
 | --- | --- | --- |
@@ -212,7 +216,10 @@ node.kind !== "context" || node.data.content.some(b => b.type === "tool-addition
 | 自动插入的汇报 | **346 次**，分布在 **21 个**会话 | 匹配注入消息的 `source` |
 | 单个会话最多 | 2,407 步 / 135 次汇报 | `session-f02b9f10…` |
 | 「说完就停」比例 | v0.4.0 之前 **207 个检查点 / 16 次 = 7.7%**<br>v0.4.0 之后 **139 个检查点 / 1 次 = 0.7%** | 按 Release 发布时间切分 |
+| 真实停止的收尾形态 | **14 / 14 全是纯文本收尾**，带工具调用的 0 次 | 240 个检查点里的 14 次真停 |
+| 完成宣告识别 | 254 个会话、486 条纯文本收尾里判出 **13 条（2.7%）**，逐条核过都是真交付 | `declaredComplete` 回归 |
 | 注入提示开销 | 约 **161 token / 条** | 实测 88 条提示共 21,565 字符 |
+| 提示词刷屏（v0.4.5 起） | 隔离真机 5 轮：模型自述的「进度（第 N 步）」从 **52 条降到 0 条** | 同一提示词只写一次 |
 | 汇报输出占比 | **4.88%** 的会话总输出 | 单会话 2,428 步 / 85 次汇报 |
 
 两个可以直接复现的脚本：
@@ -295,7 +302,7 @@ billion-context: import failed: client-modules: could not load "billion-context"
   （"只输出代码不要解释"、"严格 JSON"、"不要中途提问"），这条进度请求在当步会**压过**那个约束；
 - 它**每一次都花 token**（默认提示词约 150–200 token / 次）。N=5 跑 100 步 ≈ 20 次注入。
 
-**缓解**：把 `everyNSteps` 调大（默认 10，不急就 20–30）；用 `maxReportsPerTurn` 限死每轮次数；
+**缓解**：把 `everyNSteps` 调大（默认 20，不急就 30–50）；用 `maxReportsPerTurn` 限死每轮次数；
 在 `prompt` 里把它写成"汇报完立刻回到原任务，原任务里的一切格式约束仍然有效"，能明显降低劫持概率。
 
 ### 中风险
@@ -346,7 +353,7 @@ billion-context: import failed: client-modules: could not load "billion-context"
 
 计数从 1 起、只在 `step % N === 0` 时触发，第 1 步被显式跳过。所以：
 
-- 默认 N=10 → 实际在第 10、20、30… 步汇报；
+- 默认 N=20 → 实际在第 20、40、60… 步汇报；
 - N=1 没意义：`step % 1 === 0` 恒成立，会让第 2 步起每步都插一条汇报，等于把上下文
   撑成进度日志。**所以写 1 会被运行时夹成 2**（schema 仍然放行 1，只是为了不让你
   0.4.1 时代留下的 `everyNSteps: 1` 配置在升级后加载失败）。设置页输入框限定 `2..500`。
@@ -412,7 +419,7 @@ billion-context: import failed: client-modules: could not load "billion-context"
 
 ```bash
 npm install          # 只装 @deepseek-ai/schemastery（dev）
-npm test             # 40 组断言
+npm test             # 41 组断言
 ```
 
 测试覆盖：只在第 N 步注入、同步去重、消息形状与冻结、`showPromptInChat` 两种来源、
@@ -448,7 +455,7 @@ dsh-step-pause/
 ├── lib/client.js              # 浏览器半边：插件页配置页 + 侧边栏头像→设置 的配置段
 ├── locale/{zh,en}.json        # 插件页标题与描述
 ├── icon.svg                   # 插件页图标
-├── test/index.test.mjs        # 离线行为测试（40 组断言）
+├── test/index.test.mjs        # 离线行为测试（41 组断言）
 ├── test/verify-subagent-real.mjs  # 用本机真实会话日志验证子智能体判定
 ├── docs/config-page.png       # 实测截图
 ├── docs/cost.md               # 它要多花多少钱：实测与定价换算
