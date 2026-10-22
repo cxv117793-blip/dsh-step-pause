@@ -375,7 +375,7 @@ billion-context: import failed: client-modules: could not load "billion-context"
 
 ```bash
 npm install          # 只装 @deepseek-ai/schemastery（dev）
-npm test             # 36 组断言
+npm test             # 38 组断言
 ```
 
 测试覆盖：只在第 N 步注入、同步去重、消息形状与冻结、`showPromptInChat` 两种来源、
@@ -388,7 +388,9 @@ header 缺失时靠 `AgentRegistry.roots()` 兜底 + 注册表判不了/抛错�
 不在检查点上不救、从没汇报过不救、`signal.aborted` 不救、子智能体不救、插件关掉不救、
 换轮重置配额、payload 为空/无 `steer`/`steer` 抛错时不往外抛、抛错时也不会超配额、
 **只救纯文本收尾**（带 tool call 收尾不救、三种读不出形态都不救、`endedWithToolCall` 直测）、
-**模型宣告完成就放手**（`declaredComplete` 直测 11 条、宣告后不 steer、`declaredDone` 判据直测））。
+**模型宣告完成就放手**（`declaredComplete` 直测 11 条、宣告后不 steer、`declaredDone` 判据直测）、
+**不改下游决策的其它字段**（`startsRequestSeries` 与未知字段原样保留、不就地改下游对象、
+不干预时原样返回同一个对象））。
 
 另有 `test/verify-subagent-real.mjs`：只读扫描本机真实会话日志（`~/.dsh/sessions/**/session.v4.jsonl.zstd`），
 用真实 header 调用插件里的 `isSubagent` 断言判定结果，避免用假数据自证。当前样本 227 个会话
@@ -407,7 +409,7 @@ dsh-step-pause/
 ├── lib/client.js              # 浏览器半边：插件页配置页 + 侧边栏头像→设置 的配置段
 ├── locale/{zh,en}.json        # 插件页标题与描述
 ├── icon.svg                   # 插件页图标
-├── test/index.test.mjs        # 离线行为测试（36 组断言）
+├── test/index.test.mjs        # 离线行为测试（38 组断言）
 ├── test/verify-subagent-real.mjs  # 用本机真实会话日志验证子智能体判定
 ├── docs/config-page.png       # 实测截图
 ├── docs/cost.md               # 它要多花多少钱：实测与定价换算

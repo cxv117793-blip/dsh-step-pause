@@ -766,4 +766,31 @@ async function stopAtCheckpoint(config, { step = 10, turn = 1, registry, resumea
   assert.equal(shouldAutoResume({ ...baseInput, declaredDone: undefined }), true, '未提供该字段时按未宣告处理')
 }
 
+// 13. 修饰决策时必须保留下游的其它字段（官方 agent-lifecycle 契约：
+//     「listeners wrapping next() preserve downstream messages and startsRequestSeries
+//      unless replacement is intentional」）。
+{
+  const run = setup({ everyNSteps: 2 })
+  const decision = {
+    kind: 'enter',
+    messages: [],
+    startsRequestSeries: true,
+    futureField: 'keep-me',
+  }
+  const out = await run(payloadOf(2, 1), decision)
+  assert.equal(out.kind, 'enter')
+  assert.equal(out.messages.length, 1, '应追加一条提示')
+  assert.equal(out.startsRequestSeries, true, 'startsRequestSeries 必须原样保留')
+  assert.equal(out.futureField, 'keep-me', '未知字段也必须原样保留')
+  assert.equal(decision.messages.length, 0, '不得就地修改下游决策对象')
+}
+
+// 13b. 不干预的路径必须**原样返回同一个对象**，不能包装成新对象。
+{
+  const run = setup({ everyNSteps: 3 })
+  const decision = { kind: 'enter', messages: [], startsRequestSeries: true }
+  const out = await run(payloadOf(1, 1), decision)
+  assert.equal(out, decision, '不干预时必须返回原对象')
+}
+
 console.log('all green')
