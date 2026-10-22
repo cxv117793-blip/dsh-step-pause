@@ -3,7 +3,7 @@
  * 用法：npm test（或 node test/index.test.mjs）
  */
 import assert from 'node:assert/strict'
-import { apply, Config } from '../lib/index.js'
+import { apply, Config, shouldAutoResume } from '../lib/index.js'
 
 const handlers = []
 /** 测试里可替换的 `agents` 服务；undefined 表示「注册表判不了」。 */
@@ -22,11 +22,35 @@ function setup(config, registry) {
   handlers.length = 0
   registryValue = registry
   apply(fakeCtx, config)
-  assert.equal(handlers.length, 1, '应只注册一个 pre-step 监听器')
-  const h = handlers[0]
-  assert.equal(h.name, 'agent/pre-step')
+  const pre = handlers.filter((h) => h.name === 'agent/pre-step')
+  assert.equal(pre.length, 1, '应只注册一个 pre-step 监听器')
+  const h = pre[0]
   assert.deepEqual(h.opts, { prepend: true })
   return async (payload, decision) => h.fn(payload, async () => decision)
+}
+
+/** 取 `agent/turn-stopping` 监听器（甲方案的兜底钩子）。 */
+function turnStoppingHandler() {
+  const h = handlers.find((x) => x.name === 'agent/turn-stopping')
+  assert.ok(h, '应注册一个 agent/turn-stopping 监听器')
+  return h.fn
+}
+
+/**
+ * 一个能记录 steer 的假 agent。
+ * 返回 { agent, steered }，steered 里是每次 steer 收到的消息。
+ */
+function steerableAgent(extra = {}) {
+  const steered = []
+  const agent = {
+    id: 'main',
+    session: { id: 'main', header: { id: 'main' } },
+    steer(message) {
+      steered.push(message)
+    },
+    ...extra,
+  }
+  return { agent, steered }
 }
 
 const agent = { id: 'a1' }
@@ -295,6 +319,235 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
   }
   assert.deepEqual(mainSteps, [0, 0, 1, 0, 0, 1], '主智能体按自己的步数汇报')
   assert.deepEqual(subSteps, [0, 0, 0, 0, 0, 0], '子智能体一次都不汇报')
+}
+
+// ── 甲方案：turn-stopping 自动续跑 + 四道刹车 ────────────────────────────
+// 这一组是本插件唯一可能让对话停不下来的地方，所以每条刹车都单独钉住。
+
+/** 把「第 step 步刚汇报完、模型就此停下」这个场景搭出来。 */
+async function stopAtCheckpoint(config, { step = 10, turn = 1, registry, resumeable } = {}) {
+  const run = setup(config, registry)
+  const { agent, steered } = resumeable ?? steerableAgent()
+  // 先走 pre-step 注入汇报提示，让状态记住「本轮在 step 步汇报过」。
+  const d = await run(payloadOf(step, turn, { agent }), base)
+  assert.equal(d.messages.length, 1, `第 ${step} 步应注入一次汇报提示`)
+  const stop = turnStoppingHandler()
+  stop({ agent, turn, signal: { aborted: false } })
+  return { steered, agent, state: d }
+}
+
+// 12a. 正常形态：停在检查点上 → 会被拉回来一次
+{
+  const { steered } = await stopAtCheckpoint({ everyNSteps: 10 })
+  assert.equal(steered.length, 1, '停在检查点时应 steer 一次续跑提示')
+  const text = steered[0].content[0].text
+  assert.ok(text.includes('续跑检查'), '续跑提示应带明确标记')
+  assert.ok(text.includes('任务已完成'), '续跑提示必须留出「已完成」的退出出口')
+}
+
+// 12b. 刹车二：次数上限（默认 2）用完就不再拉
+{
+  const run = setup({ everyNSteps: 10 })
+  const { agent, steered } = steerableAgent()
+  const stop = turnStoppingHandler()
+  // 先注入第 10 步的汇报提示
+  await run(payloadOf(10, 1, { agent }), base)
+  // 反复触发 turn-stopping：每次都模拟「又停下了」
+  for (let i = 0; i < 5; i++) stop({ agent, turn: 1, signal: { aborted: false } })
+  assert.equal(steered.length, 2, '默认上限 2：最多自动拉回两次，之后放手')
+}
+
+// 12c. 刹车二：把上限设成 0 等于彻底关闭自动续跑
+{
+  const { steered } = await stopAtCheckpoint({ everyNSteps: 10, maxAutoResumesPerTurn: 0 })
+  assert.equal(steered.length, 0, '上限为 0 时一次都不续跑')
+}
+
+// 12d. 总开关 autoResume=false 时不续跑（只保留提示词引导）
+{
+  const { steered } = await stopAtCheckpoint({ everyNSteps: 10, autoResume: false })
+  assert.equal(steered.length, 0, '关掉 autoResume 后不续跑')
+}
+
+// 12e. 刹车一：没到检查点就停（正常收尾）→ 绝不能拉回来
+{
+  const run = setup({ everyNSteps: 10 })
+  const { agent, steered } = steerableAgent()
+  const stop = turnStoppingHandler()
+  // 第 10 步汇报后模型继续干活，到第 17 步才自然收尾
+  await run(payloadOf(10, 1, { agent }), base)
+  await run(payloadOf(17, 1, { agent }), base)
+  stop({ agent, turn: 1, signal: { aborted: false } })
+  assert.equal(steered.length, 0, '已经离检查点很远时视为正常收尾，不干预')
+}
+
+// 12f. 刹车一：这一步从没汇报过 → 不干预
+{
+  const run = setup({ everyNSteps: 10 })
+  const { agent, steered } = steerableAgent()
+  const stop = turnStoppingHandler()
+  // 只在第 3 步跑过，第 3 步不是检查点（10 的倍数），所以没有注入
+  const d = await run(payloadOf(3, 1, { agent }), base)
+  assert.equal(d.messages.length, 0)
+  stop({ agent, turn: 1, signal: { aborted: false } })
+  assert.equal(steered.length, 0, '没有汇报记录时不续跑')
+}
+
+// 12g. 刹车三：本轮已被取消 → 绝不复活
+{
+  const run = setup({ everyNSteps: 10 })
+  const { agent, steered } = steerableAgent()
+  const stop = turnStoppingHandler()
+  await run(payloadOf(10, 1, { agent }), base)
+  stop({ agent, turn: 1, signal: { aborted: true } })
+  assert.equal(steered.length, 0, 'signal 已中止时不续跑')
+}
+
+// 12h. 刹车四：子智能体既不汇报也不续跑
+{
+  const run = setup({ everyNSteps: 10 })
+  const sub = steerableAgent({
+    id: 'sub',
+    session: { id: 'sub', header: { id: 'sub', origin: 'subagent' } },
+  })
+  const stop = turnStoppingHandler()
+  // 子智能体连提示词都收不到，自然也没有汇报记录
+  const d = await run(payloadOf(10, 1, { agent: sub.agent }), base)
+  assert.equal(d.messages.length, 0)
+  stop({ agent: sub.agent, turn: 1, signal: { aborted: false } })
+  assert.equal(sub.steered.length, 0, '子智能体不续跑')
+}
+
+// 12i. 插件关闭时不续跑
+{
+  const run = setup({ everyNSteps: 10, enabled: false })
+  const { agent, steered } = steerableAgent()
+  const stop = turnStoppingHandler()
+  const d = await run(payloadOf(10, 1, { agent }), base)
+  assert.equal(d.messages.length, 0, '关闭时不注入汇报提示')
+  stop({ agent, turn: 1, signal: { aborted: false } })
+  assert.equal(steered.length, 0, '插件关闭时既不汇报也不续跑')
+}
+
+// 12j. 换轮之后上一轮的续跑配额与痕迹都清空
+{
+  const run = setup({ everyNSteps: 10 })
+  const { agent, steered } = steerableAgent()
+  const stop = turnStoppingHandler()
+  // 第 1 轮：用光配额
+  await run(payloadOf(10, 1, { agent }), base)
+  for (let i = 0; i < 5; i++) stop({ agent, turn: 1, signal: { aborted: false } })
+  assert.equal(steered.length, 2)
+  // 第 2 轮重新计数：第 10 步汇报后又能拉回
+  await run(payloadOf(10, 2, { agent }), base)
+  stop({ agent, turn: 2, signal: { aborted: false } })
+  assert.equal(steered.length, 3, '新一轮重新发放续跑配额')
+}
+
+// 12k. turn-stopping 里 agent 没有 steer / 传空 payload 时不能抛错
+{
+  setup({ everyNSteps: 10 })
+  const stop = turnStoppingHandler()
+  assert.doesNotThrow(() => stop(undefined))
+  assert.doesNotThrow(() => stop({}))
+  assert.doesNotThrow(() => stop({ agent: { id: 'x' }, turn: 1, signal: { aborted: false } }))
+  const throwing = {
+    id: 'y',
+    steer() {
+      throw new Error('boom')
+    },
+  }
+  assert.doesNotThrow(
+    () => stop({ agent: throwing, turn: 1, signal: { aborted: false } }),
+    'steer 抛错也不许弄坏主循环',
+  )
+}
+
+// 12l. steer 抛错后不会重复计数（记账在 steer 之前）
+{
+  const run = setup({ everyNSteps: 10 })
+  let calls = 0
+  const agent = {
+    id: 'main',
+    session: { id: 'main', header: { id: 'main' } },
+    steer() {
+      calls += 1
+      throw new Error('boom')
+    },
+  }
+  const stop = turnStoppingHandler()
+  await run(payloadOf(10, 1, { agent }), base)
+  for (let i = 0; i < 5; i++) stop({ agent, turn: 1, signal: { aborted: false } })
+  assert.equal(calls, 2, '即使 steer 一直抛错，配额也只消耗到上限为止')
+}
+
+// 12m. shouldAutoResume 纯函数直测（不经过事件，钉住每条判据）
+{
+  const okState = {
+    turn: 1,
+    step: 10,
+    injectedTurn: 1,
+    injectedStep: 10,
+    autoResumes: 0,
+    resumedStep: 0,
+  }
+  const opts = { enabled: true, autoResume: true, maxAutoResumesPerTurn: 2 }
+  const baseInput = { state: okState, turn: 1, opts, aborted: false, isSubagent: false }
+  assert.equal(shouldAutoResume(baseInput), true, '基准场景应续跑')
+
+  assert.equal(shouldAutoResume({ ...baseInput, isSubagent: true }), false, '子智能体不续跑')
+  assert.equal(shouldAutoResume({ ...baseInput, aborted: true }), false, '取消后不续跑')
+  assert.equal(
+    shouldAutoResume({ ...baseInput, opts: { ...opts, autoResume: false } }),
+    false,
+    '开关关闭不续跑',
+  )
+  assert.equal(
+    shouldAutoResume({ ...baseInput, opts: { ...opts, enabled: false } }),
+    false,
+    '插件关闭不续跑',
+  )
+  assert.equal(
+    shouldAutoResume({ ...baseInput, opts: { ...opts, maxAutoResumesPerTurn: 0 } }),
+    false,
+    '上限 0 不续跑',
+  )
+  assert.equal(
+    shouldAutoResume({
+      ...baseInput,
+      state: { ...okState, autoResumes: 2 },
+    }),
+    false,
+    '配额用尽不续跑',
+  )
+  assert.equal(
+    shouldAutoResume({ ...baseInput, turn: 2 }),
+    false,
+    '跨轮不续跑（injectedTurn 不匹配）',
+  )
+  assert.equal(
+    shouldAutoResume({ ...baseInput, state: { ...okState, step: 17 } }),
+    false,
+    '已离检查点很远时不续跑',
+  )
+  assert.equal(
+    shouldAutoResume({ ...baseInput, state: { ...okState, injectedStep: 0 } }),
+    false,
+    '没有汇报记录时不续跑',
+  )
+  assert.equal(shouldAutoResume({ ...baseInput, state: undefined }), false, '无状态不续跑')
+  assert.equal(shouldAutoResume({ ...baseInput, opts: undefined }), false, '无配置不续跑')
+  assert.equal(shouldAutoResume(undefined), false, '空输入不续跑')
+
+  // 上一次续跑落下的那一步也算「刚停下」，避免续跑一次后模型再次纯文本收尾时救不回来。
+  assert.equal(
+    shouldAutoResume({
+      ...baseInput,
+      state: { ...okState, step: 11, resumedStep: 11 },
+    }),
+    true,
+    '停在续跑之后的那一步时也应再救一次（受配额限制）',
+  )
 }
 
 console.log('all green')

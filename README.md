@@ -3,7 +3,7 @@
 > **每 N 步自动停下来汇报一次进度，说完立刻继续。**
 > 不占额外回合、不等你回复、不生成文档 —— 就几行对话正文。
 
-[![v0.3.0](https://img.shields.io/badge/release-v0.3.0-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
+[![v0.4.0](https://img.shields.io/badge/release-v0.4.0-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.2-4d6bfe)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![tests](https://img.shields.io/badge/tests-19%20groups%20green-brightgreen)](https://github.com/cxv117793-blip/dsh-step-pause#开发)
@@ -32,6 +32,7 @@
 |---|---|
 | 会不会多花一次模型调用？ | **不会**。消息追加进**本步**的输入批次，汇报和后续动作在同一次响应里完成，不产生额外回合 |
 | 会不会停下来等我点确认？ | **不会**。没有任何 `wait` / `ask` 语义，写完自己接着干 |
+| 那它会不会"说完就停"？ | 会有概率。没有工具调用的回复会让这一轮结束，实测占 8.2%。v0.4.0 用「提示词要求在回复里带工具调用」+「回合关闭前自动拉回」两层修掉，见 [docs/auto-resume.md](docs/auto-resume.md) |
 | 会不会打断正在跑的工具？ | **也不会**，但代价是：一次 3 分钟的 `npm test` 期间它什么都说不了（它挂在两次思考之间的边界上） |
 | 会不会污染子任务？ | **默认不会**。`mainAgentOnly: true` 时子智能体一次都不注入（v0.3.0 起 header 读不到也**不注入**） |
 | 会不会把对话刷爆？ | 有 `maxReportsPerTurn` 兜底；提示词原文默认**隐藏**，对话里只留你写的进度小结 |
@@ -80,7 +81,7 @@ dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
 - **侧边栏左下角头像 →「设置」→ 步数暂停**（`settings.section`，排在账号、模型这些官方段之后）
 - **设置 → 插件 → 分步暂停 → › → 配置**（插件页那一行）
 
-六个字段都带说明与草稿态：
+八个字段都带说明与草稿态：
 
 | 键 | 默认 | 说明 |
 |---|---|---|
@@ -90,6 +91,8 @@ dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
 | `prompt` | 见下 | 注入的提示词，支持 `{{step}}` `{{every}}` `{{turn}}` |
 | `showPromptInChat` | `false` | 是否在对话里显示这段提示词原文。默认隐藏，只留你的进度小结；不影响模型收到指令 |
 | `mainAgentOnly` | `true` | 只在主智能体里汇报，子智能体一律不汇报。默认开：避免并行子任务各报一份 |
+| `autoResume` | `true` | 汇报完这一轮就此结束时，在回合关闭前塞一条续跑提示把它拉回来（见下） |
+| `maxAutoResumesPerTurn` | `2` | 每轮最多自动续跑几次；`0` 等于关掉自动续跑。防「对话停不下来」的硬上限 |
 
 改动**保存即生效，不用重启**：字段声明为 `volatile()`，主机每一步都重新读值。
 保存会写进当前 profile 的 `cordis.patch.yml`：
@@ -107,14 +110,17 @@ dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
 
 ```text
 [自动 · 分步暂停 · 第 {{step}} 步（每 {{every}} 步一次）]
-先暂停手上的工作，直接在对话正文里用 5-10 行说明当前进度，然后立刻继续原任务：
+用 5-10 行说明当前进度，然后**在同一条回复里接着发出下一个工具调用**：
 1. 正在做什么：当前任务与所处步骤
 2. 已完成什么：本轮已完成的动作或产出
 3. 接下来做什么：下一步计划
 4. 卡点：需要我决策或补充信息的地方（没有就写「无」）
 
-要求：直接在回复正文里写，不要新建或修改任何文档/计划文件；
-说完不要停下来等我确认，继续把原任务做完。
+写法要求：
+- 进度说明直接在回复正文里写，不要新建或修改任何文档/计划文件；
+- 这条回复必须以一次真实的工具调用结束（继续读文件、跑命令、调子智能体等），
+  不要只用文字收尾——没有工具调用的回复会让这一轮就此结束；
+- 只有原任务确实已经全部做完时，才允许纯文字收尾，并明确写「任务已完成」。
 ```
 
 ## 工作原理
@@ -306,15 +312,32 @@ billion-context: import failed: client-modules: could not load "billion-context"
 `WeakMap` 键是 agent 对象，进程重启、或 turn 边界重置后计数归零。
 如果你在第 7 步退出应用再恢复会话，它会从 0 重新数——不是"接着第 7 步往下数"。
 
+#### 8. 自动续跑会在你正要停的时候把轮次拉回来
+
+`autoResume: true`（默认开）时，如果这一轮**恰好结束在刚汇报完的那一步**，插件会在回合关闭前
+往里塞一条续跑提示，把这一轮重新拉起来。这是为了治"说了就停"（实测占 8.2%，且 100% 都停在那一步，
+详见 [docs/auto-resume.md](docs/auto-resume.md)）。
+
+它确实是在跟用户抢方向盘，所以有四道刹车，任何一条不满足就放手：
+
+| 刹车 | 行为 |
+|---|---|
+| 只在检查点上救 | 只有"结束步 == 刚注入提示词的那一步"才考虑，模型汇报完又干了七八步才自然收尾的情况**绝不干预** |
+| 每轮配额 | `maxAutoResumesPerTurn` 默认 **2**，用完就不再救，换轮重置 |
+| 尊重取消 | `signal.aborted` 为真时绝不复活 |
+| 不碰子智能体 | 与 `mainAgentOnly` 一致 |
+
+要彻底不要这个行为：设置页关掉「停下后自动拉回来继续」，或把「每轮最多自动续跑几次」填 `0`。
+
 ### 低风险 / 已知瑕疵
 
 | # | 问题 | 说明 |
 |---|---|---|
-| 8 | `everyNSteps` 兜底值与 schema 默认值不一致 | `lib/index.js:101` 的 `clampInt(everyNSteps, 5, 1, 500)` 兜底是 **5**，而 schema 默认是 **10**。正常走 schema 不会触发；只有直接构造 `apply(ctx, {})` 时才看得见 5。 |
-| 9 | `Boolean("false")` 是 `true` | 手写 `cordis.patch.yml` 时若写成 `enabled: "false"`（带引号的字符串），`Boolean("false") === true`，开关会失效。写裸的 `false` 才对。 |
-| 10 | 测试覆盖不到真实生命周期 | `test/index.test.mjs` 的 `fakeCtx` 只实现了 `on()`，没有 `effect()`/dispose，所以"插件卸载时监听是否干净移除"这条**没有测**（依赖 cordis 的作用域自动 dispose，理论上没问题，但没有测试兜底）。11 组断言覆盖的是注入逻辑本身。 |
-| 11 | 兼容性只声明到 `0.2.1-rc.2` | `dsh.compatibility.dshReleases` 只写了 `0.2.0-rc.2` / `0.2.1-rc.2`。更新的 DSH 上如果 `agent/pre-step` 的 payload 形状变了，插件**不会报错，只会静默不生效**。 |
-| 12 | 与其它 `agent/pre-step` 监听器的顺序耦合 | 本插件用 `{ prepend: true }` 抢在最外层，先 `await next()` 拿到下游（含 compaction）的决策，再往批次**末尾**追加。如果将来有别的插件也 prepend 并且**不**调 `next()`，本插件会被短路。 |
+| 9 | `everyNSteps` 兜底值与 schema 默认值不一致 | `lib/index.js` 的 `clampInt(everyNSteps, 5, 1, 500)` 兜底是 **5**，而 schema 默认是 **10**。正常走 schema 不会触发；只有直接构造 `apply(ctx, {})` 时才看得见 5。 |
+| 10 | `Boolean("false")` 是 `true` | 手写 `cordis.patch.yml` 时若写成 `enabled: "false"`（带引号的字符串），`Boolean("false") === true`，开关会失效。写裸的 `false` 才对。 |
+| 11 | 测试覆盖不到真实生命周期 | `test/index.test.mjs` 的 `fakeCtx` 只实现了 `on()`，没有 `effect()`/dispose，所以"插件卸载时监听是否干净移除"这条**没有测**（依赖 cordis 的作用域自动 dispose，理论上没问题，但没有测试兜底）。 |
+| 12 | 兼容性只声明到 `0.2.1-rc.2` | `dsh.compatibility.dshReleases` 只写了 `0.2.0-rc.2` / `0.2.1-rc.2`。更新的 DSH 上如果 `agent/pre-step` 或 `agent/turn-stopping` 的 payload 形状变了，插件**不会报错，只会静默不生效**。 |
+| 13 | 与其它 `agent/pre-step` 监听器的顺序耦合 | 本插件用 `{ prepend: true }` 抢在最外层，先 `await next()` 拿到下游（含 compaction）的决策，再往批次**末尾**追加。如果将来有别的插件也 prepend 并且**不**调 `next()`，本插件会被短路。 |
 
 ### 它不会造成什么（也验证过）
 
@@ -340,7 +363,7 @@ billion-context: import failed: client-modules: could not load "billion-context"
 
 ```bash
 npm install          # 只装 @deepseek-ai/schemastery（dev）
-npm test             # 19 组断言
+npm test             # 28 组断言
 ```
 
 测试覆盖：只在第 N 步注入、同步去重、消息形状与冻结、`showPromptInChat` 两种来源、
@@ -348,7 +371,10 @@ npm test             # 19 组断言
 `enabled: false` 不注入但保留注册、schema 默认值、运行中改配置立即生效、
 **子智能体不汇报**（header 判定 + fork 不误伤 + 读不到 header 且无注册表时不误伤 +
 header 缺失时靠 `AgentRegistry.roots()` 兜底 + 注册表判不了/抛错时不误伤 + header 优先于注册表 +
-可关回旧行为）。
+可关回旧行为）、
+**说了就停的自动续跑**（基准续跑、默认上限 2 次、上限 0 关闭、`autoResume: false`、
+不在检查点上不救、从没汇报过不救、`signal.aborted` 不救、子智能体不救、插件关掉不救、
+换轮重置配额、payload 为空/无 `steer`/`steer` 抛错时不往外抛、抛错时也不会超配额）。
 
 另有 `test/verify-subagent-real.mjs`：只读扫描本机真实会话日志（`~/.dsh/sessions/**/session.v4.jsonl.zstd`），
 用真实 header 调用插件里的 `isSubagent` 断言判定结果，避免用假数据自证。当前样本 227 个会话
@@ -362,9 +388,12 @@ dsh-step-pause/
 ├── lib/client.js              # 浏览器半边：插件页配置页 + 侧边栏头像→设置 的配置段
 ├── locale/{zh,en}.json        # 插件页标题与描述
 ├── icon.svg                   # 插件页图标
-├── test/index.test.mjs        # 离线行为测试（19 组断言）
+├── test/index.test.mjs        # 离线行为测试（28 组断言）
 ├── test/verify-subagent-real.mjs  # 用本机真实会话日志验证子智能体判定
-└── docs/config-page.png       # 实测截图
+├── docs/config-page.png       # 实测截图
+├── docs/cost.md               # 它要多花多少钱：实测与定价换算
+├── docs/auto-resume.md        # 说了就停的成因与自动续跑的四道刹车
+└── tools/cost-report.mjs      # 只读日志的成本核算脚本
 ```
 
 `cordis.patch.yml` 只插一条 loader 条目；**不要**把它手写进 profile 的 loader 列表，
@@ -392,6 +421,14 @@ Three properties matter:
 
 Defaults: hidden prompt (the injected text is not rendered in the chat, but the model still gets
 it), main agent only (subagents never receive it), and a per-turn cap you can set to avoid spam.
+
+**Auto-resume.** A reply with no tool call ends the turn — and a "just write 5-10 lines of progress"
+reply is exactly that, so it used to stop 8.2% of the time, 100% of those on the checkpoint step.
+Two layers fix it: the prompt now also demands a real tool call in the same reply, and a
+`agent/turn-stopping` listener steers the turn back open when it stops right on a checkpoint.
+Four brakes keep it from fighting you: only rescue on the checkpoint step, at most
+`maxAutoResumesPerTurn` rescues per turn (default 2, `0` disables), never revive an aborted turn,
+never touch subagents. See [docs/auto-resume.md](docs/auto-resume.md).
 
 **Configuration** lives in two places sharing one form: *sidebar avatar → Settings → Step Pause*,
 or *Settings → Plugins → dsh-step-pause → Configure*. Changes apply on save, no restart.
