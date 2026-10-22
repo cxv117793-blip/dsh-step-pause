@@ -99,7 +99,7 @@ inject(input)   { this.send(input, "next-step", false); }
 
 ## 但「能拉回来」也意味着「可能停不下来」
 
-这是必须认真对待的风险：自动续跑本质上是在跟用户抢方向盘。所以四条刹车都是**默认保守**——任何一条不满足就放手，让这一轮正常结束。
+这是必须认真对待的风险：自动续跑本质上是在跟用户抢方向盘。所以六条刹车都是**默认保守**——任何一条不满足就放手，让这一轮正常结束。
 
 判断逻辑收在一个纯函数 `shouldAutoResume()` 里，逐条可测：
 
@@ -135,6 +135,46 @@ if (used >= limit) return false
 ### 刹车四：不碰子智能体
 
 与 `mainAgentOnly` 一致。子智能体既不汇报也不续跑——否则一次并行派生会在十几个子会话里各被拉一次。
+
+### 刹车五：只救「纯文本收尾」，工具自己结束的轮次不碰
+
+这一条是**真机压测压出来的**。`dsh-agent-loop` 判定一轮结束有两条路（`step()`，`agent-loop.js:1163-1167`）：
+
+```js
+const toolCalls = message.content.filter((block) => block.type === 'tool-call')
+if (toolCalls.length === 0) return { kind: 'completed' }        // 纯文本收尾
+const { concluded } = await executeToolCalls(...)
+return concluded ? { kind: 'completed' } : null                  // 工具自己宣布收尾
+```
+
+`turn-stopping` 的 payload 只有 `{turn, signal}`，**拿不到是哪一种**。所以插件自己去会话历史里看：`endedWithToolCall(agent)` 从 `agent.session.deriveMessages()` 尾部倒着找最后一条 assistant 消息，看 `content` 里有没有 `tool-call`。
+
+```js
+if (endedByTool !== false) return false // 只有确证是纯文本收尾才救；读不出来也不救
+```
+
+为什么要这么严：第二类（工具自己 `concludeTurn()`）意味着任务**真的**做完了（`todo_write` 全勾完、`plan-mode` 提交方案、子智能体返回），此时拉回来就是纯粹捣乱。把「读不出来」当「可以救」，正好撞上「让对话停不下来」这条红线。
+
+真机复现：任务「依次创建 3 个文件」，N=2。第 6 步模型已经写完总结、`task` 工具也报告完成，插件还是连 steer 两次，白烧两个配额。加上这道刹车后同样的任务在第 7 步干净结束。
+
+真机实测过滤这道刹车的价值：本机 245 个会话、184 次注入、14 次真实停止，**14/14 全部是纯文本收尾，工具收尾 0 次** ⇒ 这道刹车在真实数据上零误伤。
+
+### 刹车六：模型自己说「任务已完成」就放手
+
+第五道刹车解决的是「工具结束」，但纯文本收尾里还有一种**正经收尾**：模型写完了全部工作，回一句「任务已完成」。插件在提示词里就是这么约定的（`DEFAULT_PROMPT` 的第三条「写法要求」），所以必须认这句话，否则约定形同虚设。
+
+`declaredComplete(agent)` 取最后一条 assistant 消息，把文本块拼起来，拆行后**从结尾往前找第一条有实际内容的行**（跳过 `---`、`✅` 这类纯装饰），只在这一行里找标记：
+
+```js
+const COMPLETION_MARKERS = [
+  '任务已完成', '任务已全部完成', '已全部完成', '全部完成',
+  'task complete', 'task is complete', 'all done', 'all tasks are complete',
+]
+```
+
+判据：`if (declaredDone === true) return false`。读不出、抛错一律按「没宣告完成」处理——方向是保守的：宁可多跑一步，也不误判完成把活丢下。
+
+> 只看最后一条**有内容的行**，而不是「整段最后 30 个字符」。第一版用的后者，在 `'任务已完成的意思是全部做完。\n现在继续创建 t4.txt。'` 上会误判成完成——那句「任务已完成」是在写说明，不是在宣告。
 
 ### 还有一层：续跑提示词写死，不可配置
 
@@ -181,7 +221,7 @@ if (used >= limit) return false
 - 判定逻辑：`lib/index.js` 的 `shouldAutoResume()`、`RESUME_PROMPT`、`agent/turn-stopping` 监听
 - 提示词：`lib/index.js` 的 `DEFAULT_PROMPT`
 - 设置页控件：`lib/client.js`（`autoResume` 开关 与 `maxAutoResumesPerTurn` 数字框）
-- 测试：`test/index.test.mjs` 第 12 组（12a–12m），覆盖四条刹车、配额耗尽、换轮重置、与 steer 抛错
+- 测试：`test/index.test.mjs` 第 12 组（12a–12s），覆盖六条刹车、配额耗尽、换轮重置、与 steer 抛错、`endedWithToolCall` 与 `declaredComplete` 的直测
 
 ---
 

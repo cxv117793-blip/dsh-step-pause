@@ -3,7 +3,13 @@
  * 用法：npm test（或 node test/index.test.mjs）
  */
 import assert from 'node:assert/strict'
-import { apply, Config, endedWithToolCall, shouldAutoResume } from '../lib/index.js'
+import {
+  apply,
+  Config,
+  declaredComplete,
+  endedWithToolCall,
+  shouldAutoResume,
+} from '../lib/index.js'
 
 const handlers = []
 /** 测试里可替换的 `agents` 服务；undefined 表示「注册表判不了」。 */
@@ -158,7 +164,7 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
   assert.equal(d, base)
 }
 
-// 9. 配置 schema：六个字段都是 .volatile()（设置页只认 volatile 字段），默认值不变
+// 9. 配置 schema：八个字段都是 .volatile()（设置页只认 volatile 字段），默认值不变
 {
   const defaults = Config({})
   for (const key of [
@@ -168,6 +174,8 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
     'prompt',
     'showPromptInChat',
     'mainAgentOnly',
+    'autoResume',
+    'maxAutoResumesPerTurn',
   ]) {
     assert.equal(typeof defaults[key], 'object', key + ' 应是 volatile 引用')
     assert.equal(typeof defaults[key].get, 'function', key + ' 应能 get()')
@@ -177,6 +185,8 @@ const payloadOf = (step, turn = 1, extra = {}) => ({ agent, turn, step, signal: 
   assert.equal(defaults.maxReportsPerTurn.get(), 0)
   assert.equal(defaults.showPromptInChat.get(), false, '默认隐藏提示词原文')
   assert.equal(defaults.mainAgentOnly.get(), true, '默认只在主智能体里汇报')
+  assert.equal(defaults.autoResume.get(), true, '默认开启自动续跑')
+  assert.equal(defaults.maxAutoResumesPerTurn.get(), 2, '默认每轮最多续跑 2 次')
   assert.ok(defaults.prompt.get().includes('{{step}}'))
 }
 
@@ -661,6 +671,99 @@ async function stopAtCheckpoint(config, { step = 10, turn = 1, registry, resumea
     },
   }
   assert.equal(endedWithToolCall(trailingUser), false, '跳过尾部 user 消息，取最后一条 assistant')
+}
+
+// 12q. declaredComplete 纯函数直测：只认收尾处的宣告
+{
+  const withText = (text) => ({
+    session: { deriveMessages: () => [{ role: 'assistant', content: [{ type: 'text', text }] }] },
+  })
+
+  assert.equal(declaredComplete(withText('都做完了。\n\n任务已完成。')), true, '结尾写「任务已完成」应判完成')
+  assert.equal(declaredComplete(withText('任务已完成。')), true, '只有一行也认得')
+  assert.equal(declaredComplete(withText('原任务确实已全部完成，无需继续。')), true, '变体写法也认得')
+  assert.equal(declaredComplete(withText('All done.')), true, '英文也认得')
+
+  // 进度汇报里的「已完成什么：」不能误判成完成。
+  assert.equal(
+    declaredComplete(
+      withText('1. 正在做什么：写文件\n2. 已完成什么：创建了 t1.txt\n3. 接下来做什么：创建 t2.txt'),
+    ),
+    false,
+    '正文里的「已完成」不算完成',
+  )
+  // 完成宣告必须落在收尾处，正文中间提到不算。
+  assert.equal(
+    declaredComplete(withText('任务已完成的意思是全部做完。\n现在继续创建 t4.txt。')),
+    false,
+    '正文中间提到不算完成（收尾处还在干活）',
+  )
+  assert.equal(declaredComplete(withText('')), false, '空文本不判完成')
+  assert.equal(declaredComplete(undefined), false, '没 agent 不判完成')
+  assert.equal(declaredComplete({}), false, '没 session 不判完成')
+  assert.equal(
+    declaredComplete({
+      session: {
+        deriveMessages() {
+          throw new Error('boom')
+        },
+      },
+    }),
+    false,
+    '抛错不判完成（保守方向：宁可继续跑也不误判完成）',
+  )
+  assert.equal(
+    declaredComplete({
+      session: {
+        deriveMessages: () => [
+          { role: 'assistant', content: [{ type: 'text', text: '任务已完成。' }] },
+          { role: 'user', content: [{ type: 'text', text: '[自动 · 分步暂停 · 续跑检查]' }] },
+        ],
+      },
+    }),
+    true,
+    '跳过尾部 user 消息，取最后一条 assistant',
+  )
+}
+
+// 12r. 刹车六：模型宣告完成后，即使停在检查点也不救
+{
+  const run = setup({ everyNSteps: 10 })
+  const { agent, steered } = steerableAgent({
+    session: {
+      id: 'main',
+      header: { id: 'main' },
+      deriveMessages: () => [{ role: 'assistant', content: [{ type: 'text', text: '任务已完成。' }] }],
+    },
+  })
+  const stop = turnStoppingHandler()
+  await run(payloadOf(10, 1, { agent }), base)
+  stop({ agent, turn: 1, signal: { aborted: false } })
+  assert.equal(steered.length, 0, '模型说完成了就不许再拉回来')
+}
+
+// 12s. shouldAutoResume 的 declaredDone 判据直测
+{
+  const state = {
+    turn: 1,
+    step: 10,
+    injectedTurn: 1,
+    injectedStep: 10,
+    autoResumes: 0,
+    resumedStep: 0,
+  }
+  const opts = { enabled: true, autoResume: true, maxAutoResumesPerTurn: 2 }
+  const baseInput = {
+    state,
+    turn: 1,
+    opts,
+    aborted: false,
+    isSubagent: false,
+    endedWithToolCall: false,
+  }
+  assert.equal(shouldAutoResume({ ...baseInput, declaredDone: true }), false, '宣告完成后不续跑')
+  assert.equal(shouldAutoResume({ ...baseInput, declaredDone: false }), true, '没宣告完成才续跑')
+  assert.equal(shouldAutoResume({ ...baseInput, declaredDone: undefined }), true, '未提供该字段时按未宣告处理')
 }
 
 console.log('all green')

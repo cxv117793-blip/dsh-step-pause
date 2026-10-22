@@ -3,7 +3,7 @@
 > **每 N 步自动停下来汇报一次进度，说完立刻继续。**
 > 不占额外回合、不等你回复、不生成文档 —— 就几行对话正文。
 
-[![v0.4.0](https://img.shields.io/badge/release-v0.4.0-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
+[![v0.4.1](https://img.shields.io/badge/release-v0.4.1-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.2-4d6bfe)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![tests](https://img.shields.io/badge/tests-19%20groups%20green-brightgreen)](https://github.com/cxv117793-blip/dsh-step-pause#开发)
@@ -318,7 +318,7 @@ billion-context: import failed: client-modules: could not load "billion-context"
 往里塞一条续跑提示，把这一轮重新拉起来。这是为了治"说了就停"（实测占 8.2%，且 100% 都停在那一步，
 详见 [docs/auto-resume.md](docs/auto-resume.md)）。
 
-它确实是在跟用户抢方向盘，所以有四道刹车，任何一条不满足就放手：
+它确实是在跟用户抢方向盘，所以有六道刹车，任何一条不满足就放手：
 
 | 刹车 | 行为 |
 |---|---|
@@ -326,6 +326,8 @@ billion-context: import failed: client-modules: could not load "billion-context"
 | 每轮配额 | `maxAutoResumesPerTurn` 默认 **2**，用完就不再救，换轮重置 |
 | 尊重取消 | `signal.aborted` 为真时绝不复活 |
 | 不碰子智能体 | 与 `mainAgentOnly` 一致 |
+| 只救纯文本收尾 | 最后一条 assistant 消息里带 tool call（工具自己 `concludeTurn()`）时不救；读不出来也不救 |
+| 模型说完成就放手 | 收尾那行写了「任务已完成 / all done」等标记时不救 |
 
 要彻底不要这个行为：设置页关掉「停下后自动拉回来继续」，或把「每轮最多自动续跑几次」填 `0`。
 
@@ -333,7 +335,7 @@ billion-context: import failed: client-modules: could not load "billion-context"
 
 | # | 问题 | 说明 |
 |---|---|---|
-| 9 | `everyNSteps` 兜底值与 schema 默认值不一致 | `lib/index.js` 的 `clampInt(everyNSteps, 5, 1, 500)` 兜底是 **5**，而 schema 默认是 **10**。正常走 schema 不会触发；只有直接构造 `apply(ctx, {})` 时才看得见 5。 |
+| 9 | `maxReportsPerTurn` 只按轮计数，不受 `everyNSteps` 变化影响 | 中途把 `everyNSteps` 调小，本轮的计数不会重置，配额仍然按轮算。属设计取舍。 |
 | 10 | `Boolean("false")` 是 `true` | 手写 `cordis.patch.yml` 时若写成 `enabled: "false"`（带引号的字符串），`Boolean("false") === true`，开关会失效。写裸的 `false` 才对。 |
 | 11 | 测试覆盖不到真实生命周期 | `test/index.test.mjs` 的 `fakeCtx` 只实现了 `on()`，没有 `effect()`/dispose，所以"插件卸载时监听是否干净移除"这条**没有测**（依赖 cordis 的作用域自动 dispose，理论上没问题，但没有测试兜底）。 |
 | 12 | 兼容性只声明到 `0.2.1-rc.2` | `dsh.compatibility.dshReleases` 只写了 `0.2.0-rc.2` / `0.2.1-rc.2`。更新的 DSH 上如果 `agent/pre-step` 或 `agent/turn-stopping` 的 payload 形状变了，插件**不会报错，只会静默不生效**。 |
@@ -363,7 +365,7 @@ billion-context: import failed: client-modules: could not load "billion-context"
 
 ```bash
 npm install          # 只装 @deepseek-ai/schemastery（dev）
-npm test             # 28 组断言
+npm test             # 36 组断言
 ```
 
 测试覆盖：只在第 N 步注入、同步去重、消息形状与冻结、`showPromptInChat` 两种来源、
@@ -374,7 +376,9 @@ header 缺失时靠 `AgentRegistry.roots()` 兜底 + 注册表判不了/抛错�
 可关回旧行为）、
 **说了就停的自动续跑**（基准续跑、默认上限 2 次、上限 0 关闭、`autoResume: false`、
 不在检查点上不救、从没汇报过不救、`signal.aborted` 不救、子智能体不救、插件关掉不救、
-换轮重置配额、payload 为空/无 `steer`/`steer` 抛错时不往外抛、抛错时也不会超配额）。
+换轮重置配额、payload 为空/无 `steer`/`steer` 抛错时不往外抛、抛错时也不会超配额、
+**只救纯文本收尾**（带 tool call 收尾不救、三种读不出形态都不救、`endedWithToolCall` 直测）、
+**模型宣告完成就放手**（`declaredComplete` 直测 11 条、宣告后不 steer、`declaredDone` 判据直测））。
 
 另有 `test/verify-subagent-real.mjs`：只读扫描本机真实会话日志（`~/.dsh/sessions/**/session.v4.jsonl.zstd`），
 用真实 header 调用插件里的 `isSubagent` 断言判定结果，避免用假数据自证。当前样本 227 个会话
@@ -393,11 +397,11 @@ dsh-step-pause/
 ├── lib/client.js              # 浏览器半边：插件页配置页 + 侧边栏头像→设置 的配置段
 ├── locale/{zh,en}.json        # 插件页标题与描述
 ├── icon.svg                   # 插件页图标
-├── test/index.test.mjs        # 离线行为测试（28 组断言）
+├── test/index.test.mjs        # 离线行为测试（36 组断言）
 ├── test/verify-subagent-real.mjs  # 用本机真实会话日志验证子智能体判定
 ├── docs/config-page.png       # 实测截图
 ├── docs/cost.md               # 它要多花多少钱：实测与定价换算
-├── docs/auto-resume.md        # 说了就停的成因与自动续跑的四道刹车
+├── docs/auto-resume.md        # 说了就停的成因与自动续跑的六道刹车
 └── tools/cost-report.mjs      # 只读日志的成本核算脚本
 ```
 
