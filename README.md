@@ -3,7 +3,7 @@
 > **每 N 步自动停下来汇报一次进度，说完立刻继续。**
 > 不占额外回合、不等你回复、不生成文档 —— 就几行对话正文。
 
-[![v0.4.2](https://img.shields.io/badge/release-v0.4.2-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
+[![v0.4.3](https://img.shields.io/badge/release-v0.4.3-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.2-4d6bfe)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![tests](https://img.shields.io/badge/tests-40%20groups%20green-brightgreen)](https://github.com/cxv117793-blip/dsh-step-pause#开发)
@@ -63,7 +63,7 @@ dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
 https://github.com/cxv117793-blip/dsh-step-pause/releases/latest/download/dsh-step-pause.tgz
 
 # 带版本号（钉死到某个版本时用）
-https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.4.2/dsh-step-pause-0.4.2.tgz
+https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.4.3/dsh-step-pause-0.4.3.tgz
 ```
 
 > 桌面版的安装框支持「npm 包、Git 仓库和本地目录」，把上面这条 URL 粘进去即可。
@@ -385,6 +385,7 @@ billion-context: import failed: client-modules: could not load "billion-context"
 | 11 | 测试覆盖不到真实生命周期 | `test/index.test.mjs` 的 `fakeCtx` 只实现了 `on()`，没有 `effect()`/dispose，所以"插件卸载时监听是否干净移除"这条**没有测**（依赖 cordis 的作用域自动 dispose，理论上没问题，但没有测试兜底）。 |
 | 12 | 兼容性只声明到 `0.2.1-rc.2` | `dsh.compatibility.dshReleases` 只写了 `0.2.0-rc.2` / `0.2.1-rc.2`。更新的 DSH 上如果 `agent/pre-step` 或 `agent/turn-stopping` 的 payload 形状变了，插件**不会报错，只会静默不生效**。 |
 | 13 | 与其它 `agent/pre-step` 监听器的顺序耦合 | 本插件用 `{ prepend: true }` 抢在最外层，先 `await next()` 拿到下游（含 compaction）的决策，再往批次**末尾**追加。如果将来有别的插件也 prepend 并且**不**调 `next()`，本插件会被短路。 |
+| 14 | 短宣告「已完成」只在**行首**算完成 | 模型收尾只写「已完成」时会被认作完成并放手；但「我已完成第一步」这类句中用法不算。若模型把完成宣告写在长句中间，第六道刹车仍会保守地认为「没宣告完成」而续跑一次。属刻意取舍：宁可多跑一次，也不误判正在干活的任务。 |
 
 ### 它不会造成什么（也验证过）
 

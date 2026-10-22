@@ -743,6 +743,19 @@ async function stopAtCheckpoint(config, { step = 10, turn = 1, registry, resumea
     true,
     '「无需继续」不应被当成还要干活',
   )
+
+  // 短宣告「已完成」：模型常在收尾只写这三个字。只认行首，句中「我已完成第一步」不算。
+  // 少这一条，第六道刹车会在最该放手的时候把轮次拉回来（对话停不下来）。
+  assert.equal(declaredComplete(withText('已完成')), true, '行首「已完成」是完成宣告')
+  assert.equal(declaredComplete(withText('已完成。')), true, '带句号的短宣告也认')
+  assert.equal(declaredComplete(withText('已完成第一步，还剩两步。')), false, '句中「已完成」不是宣告')
+  assert.equal(declaredComplete(withText('我已完成第一部分，接下来做第二部分。')), false, '「我已完成…」不是宣告')
+  assert.equal(declaredComplete(withText('都已完成。')), true, '「都已完成」是宣告')
+  assert.equal(declaredComplete(withText('已完成，现在继续 t4。')), false, '短宣告后还有活，不算收尾')
+
+  // 尾部长度只按真正的字算：标点不该吃掉「语气尾巴」的额度。
+  assert.equal(declaredComplete(withText('（任务已完成）')), true, '括号包住的宣告也认')
+  assert.equal(declaredComplete(withText('✅ 任务已完成 ✅')), true, '带装饰符的宣告也认')
 }
 
 // 12r. 刹车六：模型宣告完成后，即使停在检查点也不救
