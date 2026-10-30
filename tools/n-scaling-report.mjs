@@ -325,6 +325,7 @@ const rows = ns.map((N) => {
 })
 
 // ---------- 6. 输出 ----------
+const sampleLine = { sessions: sessions.length, injections: allInj.length, calls: sessions.reduce((a, s) => a + s.usages.length, 0) }
 if (flag('markdown', false)) {
   console.log(`| N | 汇报次数 | 一次性开销 | 连带重读 | 合计 | 每步均摊 |`)
   console.log(`| --- | --- | --- | --- | --- | --- |`)
@@ -372,7 +373,7 @@ if (flag('markdown', false)) {
 
 if (flag('json', false)) {
   console.log('')
-  console.log(JSON.stringify({ constants: { P, R, B }, cache: { rep: cacheRep, ord: cacheOrd }, steps: S, rows }, null, 2))
+  console.log(JSON.stringify({ sample: sampleLine, constants: { P, R, B }, spread: { P: [pct(Pset, 0.25), pct(Pset, 0.75)], R: [pct(Rset, 0.25), pct(Rset, 0.75)] }, cache: { rep: cacheRep, ord: cacheOrd }, steps: S, rows }, null, 2))
 }
 
 // 图表与表格必须出自同一次计算，否则文档里会出现两个 B。
