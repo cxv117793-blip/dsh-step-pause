@@ -3,7 +3,7 @@
 > **每 N 步自动停下来汇报一次进度，说完立刻继续。**
 > 不占额外回合、不等你回复、不生成文档 —— 就几行对话正文。
 
-[![v0.4.6](https://img.shields.io/badge/release-v0.4.7-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
+[![v0.4.7](https://img.shields.io/badge/release-v0.4.7-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.2-4d6bfe)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![tests](https://img.shields.io/badge/tests-41%20groups%20green-brightgreen)](https://github.com/cxv117793-blip/dsh-step-pause#开发)
