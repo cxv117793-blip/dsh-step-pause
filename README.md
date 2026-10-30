@@ -37,7 +37,7 @@
 |---|---|
 | 会不会多花一次模型调用？ | **不会**。消息追加进**本步**的输入批次，汇报和后续动作在同一次响应里完成，不产生额外回合 |
 | 会不会停下来等我点确认？ | **不会**。没有任何 `wait` / `ask` 语义，写完自己接着干 |
-| 那它会不会"说完就停"？ | 会有概率：没有工具调用的回复会让这一轮结束。按提示词代次实测：**中期版 4.7%**（299 次里 14 次），**v0.4.5 起的一次性检查点 0%**（275 次里 0 次）。另有「回合关闭前自动拉回」兜底，见 [docs/auto-resume.md](docs/auto-resume.md) |
+| 那它会不会"说完就停"？ | 会有概率：没有工具调用的回复会让这一轮结束。按提示词代次实测：**中期版 4.7%**（299 次里 14 次），**v0.4.5 起的一次性检查点 0%**（303 次里 0 次）。另有「回合关闭前自动拉回」兜底，见 [docs/auto-resume.md](docs/auto-resume.md) |
 | 会不会打断正在跑的工具？ | **也不会**，但代价是：一次 3 分钟的 `npm test` 期间它什么都说不了（它挂在两次思考之间的边界上） |
 | 会不会污染子任务？ | **默认不会**。`mainAgentOnly: true` 时子智能体一次都不注入（v0.3.0 起 header 读不到也**不注入**） |
 | 会不会把对话刷爆？ | 有 `maxReportsPerTurn` 兜底；提示词原文默认**隐藏**，对话里只留你写的进度小结 |
@@ -301,7 +301,7 @@ node tools/n-scaling-report.mjs --n=10,20,40 --markdown
 - 单次成本 ≈ **¥0.0038**（追加 120 token 未命中 + 97,279 token 命中 + 输出 430 token）。
 - 最坏情况：上限 1 → 每轮最多 ¥0.0038（100 轮 ¥0.38）；上限 2 → ¥0.0076（¥0.76）。
 
-> 「说了就停」这 14 次全部发生在旧版提示词上：**中期版 14/299 = 4.7%，v0.4.5 起的一次性检查点 0/275 = 0%**。
+> 「说了就停」这 14 次全部发生在旧版提示词上：**中期版 14/299 = 4.7%，v0.4.5 起的一次性检查点 0/303 = 0%**。
 > 也就是说现在的版本里这件事基本不再发生，续跑纯属保险。
 
 **结论**：默认 `2` 已经偏保守了——真实数据里一次都没用到第二档。
@@ -629,7 +629,7 @@ it), main agent only (subagents never receive it), and a per-turn cap you can se
 **Auto-resume.** A reply with no tool call ends the turn — and a "just write 5-10 lines of progress"
 reply is exactly that, so it used to stop. Measured by prompt generation: **4.7%** on the
 mid-generation prompt (14 of 299 checkpoints) and **0%** on the one-shot checkpoint introduced in
-v0.4.5 (0 of 275). Every observed stop landed on the injected step.
+v0.4.5 (0 of 303). Every observed stop landed on the injected step.
 Two layers fix it: the prompt now also demands a real tool call in the same reply, and a
 `agent/turn-stopping` listener steers the turn back open when it stops right on a checkpoint.
 Six brakes keep it from fighting you: only rescue on the checkpoint step, at most
