@@ -771,6 +771,47 @@ async function stopAtCheckpoint(config, { step = 10, turn = 1, registry, resumea
   assert.equal(declaredComplete(withText('✅ 任务已完成 ✅')), true, '带装饰符的宣告也认')
 }
 
+// 12q3. 真收尾后面跟着交付说明 / 统计数字 / 日期，不能被当成「还没做完」
+//
+// 真实语料（252 条会话收尾）里绝大多数都是「已完成。<交付说明>」的形态。
+// 早期版本用「整条消息里出现分数/百分比就算没做完」，在真机数据上把
+// 11 条真收尾误伤了 8 条 —— 因为它们中间写了 `2027/03`、`182 / 166`、`命中率 0%`。
+{
+  const withText = (text) => ({ session: { id: 'm', header: { id: 'm' }, deriveMessages: () => [{ role: 'assistant', content: [{ type: 'text', text }] }] } })
+
+  assert.equal(
+    declaredComplete(withText('已完成。报告写入 health_mood.md（8379 字符 / 3645 汉字 / 166 行），并已把摘要发出。')),
+    true,
+    '交付说明里的统计数字不该判成「做了一半」',
+  )
+  assert.equal(
+    declaredComplete(withText('已完成核实，结果写入 linux-openeuler.md（2027/03 版本）')),
+    true,
+    '日期形态 2027/03 不是进度分数',
+  )
+  assert.equal(
+    declaredComplete(withText('全部完成。资源打包、复核、热加载验证都已通过，下面是交付说明。')),
+    true,
+    '宣告后紧跟交付说明仍是收尾',
+  )
+  assert.equal(
+    declaredComplete(withText('全部做完了。下面是完整交付说明。')),
+    true,
+    '「全部做完了」+ 交付说明',
+  )
+
+  // 反过来：真正的进度分数必须仍然拦住，不能因为放开了日期就把它们漏掉。
+  assert.equal(declaredComplete(withText('已完成 5/8')), false, '分数仍是未完成')
+  assert.equal(declaredComplete(withText('已完成 60%')), false, '百分比仍是未完成')
+  assert.equal(declaredComplete(withText('任务已完成，还剩 1 个')), false, '「还剩 N 个」仍是未完成')
+  assert.equal(declaredComplete(withText('已完成 4 个模块，还剩 2 个模块。')), false, '带计数的未完成仍是未完成')
+
+  // 续做信号在句号之后也要能认出来（收尾行分支用宽表）。
+  assert.equal(declaredComplete(withText('已完成。然后跑一遍测试')), false, '「然后」后接动词算还有活')
+  assert.equal(declaredComplete(withText('任务已完成。随后我会跑测试')), false, '「随后」算还有活')
+  assert.equal(declaredComplete(withText('全部完成。现在我来创建 t4.txt')), false, '「现在我来」算还有活')
+}
+
 // 12q2. 开头宣告：模型习惯先下结论、再补细节，这种也要认出来
 {
   const withText = (text) => ({ session: { id: 'm', header: { id: 'm' }, deriveMessages: () => [{ role: 'assistant', content: [{ type: 'text', text }] }] } })
@@ -878,15 +919,27 @@ async function stopAtCheckpoint(config, { step = 10, turn = 1, registry, resumea
   assert.equal(declaredComplete(untouched, snapshot), true, '快照优先，不碰 session')
 }
 
-// 12u. 没有 agent 的步骤不会串号（每次拿到的都是一份全新状态）
+// 12u. 拿不到 agent 时也不能无限注入
+//
+// 旧实现每次 `freshState()`，于是幂等闸（injectedTurn/injectedStep）与
+// maxReportsPerTurn 全部失效：同一个 (turn, step) 反复进 pre-step 就反复注入。
+// 这个分支是防御性的（正常路径上 payload.agent 一定在），但真被走到时
+// 「重复注入」比「注入变少」危险得多，所以改成共用一份兜底状态。
 {
   const run = setup({ everyNSteps: 10 })
-  const decider = await Promise.all([
-    run(payloadOf(10, 1, { agent: undefined }), base),
-    run(payloadOf(10, 1, { agent: undefined }), base),
-  ])
-  assert.equal(decider[0].messages.length, 1, '没有 agent 时仍然按步数插入')
-  assert.equal(decider[1].messages.length, 1, '两次调用各自独立，都算首次')
+  const first = await run(payloadOf(10, 1, { agent: undefined }), base)
+  const again = await run(payloadOf(10, 1, { agent: undefined }), base)
+  assert.equal(first.messages.length, 1, '没有 agent 时仍然按步数插入')
+  assert.equal(again.messages.length, 0, '同一个 (turn, step) 只注入一次，不重复')
+}
+
+// 12u2. 兜底状态同样受 maxReportsPerTurn 约束（旧实现在这里也拦不住）
+{
+  const run = setup({ everyNSteps: 2, maxReportsPerTurn: 1 })
+  const a = await run(payloadOf(2, 1, { agent: undefined }), base)
+  const b = await run(payloadOf(4, 1, { agent: undefined }), base)
+  assert.equal(a.messages.length, 1, '第 2 步注入')
+  assert.equal(b.messages.length, 0, '每轮上限 1 生效，第 4 步不再注入')
 }
 
 

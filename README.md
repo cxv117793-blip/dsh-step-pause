@@ -3,7 +3,7 @@
 > **每 N 步自动停下来汇报一次进度，说完立刻继续。**
 > 不占额外回合、不等你回复、不生成文档 —— 就几行对话正文。
 
-[![v0.4.8](https://img.shields.io/badge/release-v0.4.8-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
+[![v0.4.9](https://img.shields.io/badge/release-v0.4.9-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.2-4d6bfe)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![tests](https://img.shields.io/badge/tests-41%20groups%20green-brightgreen)](https://github.com/cxv117793-blip/dsh-step-pause#开发)
@@ -14,9 +14,9 @@
 长任务跑到第 30、40 步，你往往不知道它在干什么、卡在哪、还要多久。这个插件按固定节奏
 把进度**主动说出来**：正在做什么 / 已完成什么 / 接下来做什么 / 卡点 —— 然后接着干。
 
-它已经在本机的 **274 个真实会话、31,450 个模型步骤**里跑了 **595 次检查点**，
+它已经在本机的 **276 个真实会话、32,349 个模型步骤**里跑了 **623 次检查点**，
 「说完就停」的比例从 **4.7%（v0.4.5 之前的系列式提示）降到 0%（v0.4.5 起的一次性检查点）**，
-每次检查点约 **0.4 分钱**（含它之后被反复重读的那部分）。
+每次检查点约 **0.3 分钱**（含它之后被反复重读的那部分）。
 数据来自会话日志逐帧解码，不是估算 —— 附录见 [实测数据](#实测数据本机跑出来的数字)。
 
 ```text
@@ -64,7 +64,7 @@ dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
 https://github.com/cxv117793-blip/dsh-step-pause/releases/latest/download/dsh-step-pause.tgz
 
 # 带版本号（钉死到某个版本时用）
-https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.4.8/dsh-step-pause-0.4.8.tgz
+https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.4.9/dsh-step-pause-0.4.9.tgz
 ```
 
 > 桌面版的安装框支持「npm 包、Git 仓库和本地目录」，把上面这条 URL 粘进去即可。
@@ -187,27 +187,27 @@ node.kind !== "context" || node.data.content.some(b => b.type === "tool-addition
 ## 成本：N 越大越省，这是实测的
 
 **结论：汇报间隔 N 每翻一倍，插件带来的总开销约减半。**
-下表来自本机 48 个真实会话、592 次自动注入、16,249 条模型调用的实际 token 计数，
+下表来自本机 51 个真实会话、620 次自动注入、17,148 条模型调用的实际 token 计数，
 不是估算，也不是按字数折算。快照时间 2026-10-30；你自己跑会因为样本继续增长而略有出入，
 那是正常的——方法是同一个，数字该跟着你的使用变。
 
 | N（每几步汇报） | 注入次数 | 总开销 | 占整场会话 | **折合人民币** |
 | --- | --- | --- | --- | --- |
-| 1（每步都汇报） | 199 | 13,949,900 token | 71.7% | ¥0.797 |
-| 5 | 39 | 2,733,900 token | 14.1% | ¥0.156 |
-| 10 | 19 | 1,331,900 token | 6.8% | ¥0.076 |
-| 15 | 13 | 866,190 token | 4.5% | ¥0.051 |
-| **20（默认）** | 9 | 630,900 token | 3.2% | **¥0.036** |
-| 30 | 6 | 399,780 token | 2.1% | ¥0.023 |
-| 40 | 4 | 280,400 token | 1.4% | ¥0.016 |
-| 100 | 1 | 70,100 token | 0.4% | ¥0.004 |
+| 1（每步都汇报） | 199 | 13,570,805 token | 69.6% | ¥0.664 |
+| 5 | 39 | 2,659,605 token | 13.6% | ¥0.130 |
+| 10 | 19 | 1,295,705 token | 6.6% | ¥0.063 |
+| 15 | 13 | 842,660 token | 4.3% | ¥0.042 |
+| **20（默认）** | 9 | 613,755 token | 3.1% | **¥0.030** |
+| 30 | 6 | 388,920 token | 2.0% | ¥0.020 |
+| 40 | 4 | 272,780 token | 1.4% | ¥0.013 |
+| 100 | 1 | 68,195 token | 0.3% | ¥0.003 |
 
 > 以上是 **200 步会话、空闲时段、`deepseek-flash`** 的价格。高峰时段一律 ×2。
 > 单价来源：[DeepSeek 官方价格页](https://api-docs.deepseek.com/zh-cn/quick_start/pricing)（2026-10 快照）：
 > 缓存命中输入 **0.02** / 未命中输入 **1.00** / 输出 **4.00** 元每百万 token。
 
-**换个更好记的说法**：默认 N=20 时，**一千步大约两毛钱**（¥0.18）；
-把 N 砍到 10 翻倍到 ¥0.38，调到 30 降到 ¥0.12。哪怕每步都汇报，1000 步也就 ¥4 上下。
+**换个更好记的说法**：默认 N=20 时，**一千步大约一毛五**（¥0.15）；
+把 N 砍到 10 翻倍到 ¥0.32，调到 30 降到 ¥0.10。哪怕每步都汇报，1000 步也就 ¥3.3 上下。
 
 - **N=10 → N=20：省 52.6%**；**N=20 → N=40：省 55.6%**；**N=10 → N=30：省 70.0%**。
 - 占全部成本的其实是**连带重读**：一条汇报写完之后，它在历史里留到会话结束，
@@ -222,11 +222,11 @@ node.kind !== "context" || node.data.content.some(b => b.type === "tool-addition
 
 | 常数 | 数值 | 含义 |
 | --- | --- | --- |
-| P | **265 token**（p25 181 / p75 351） | 注入的提示词本身 |
-| R | **435 token**（p25 340 / p75 632） | 模型为它写的汇报输出 |
-| B | **694 token** | 一条已归档汇报，之后每一步还要多背的量 |
+| P | **265 token**（p25 182 / p75 351） | 注入的提示词本身 |
+| R | **430 token**（p25 339 / p75 629） | 模型为它写的汇报输出 |
+| B | **675 token** | 一条已归档汇报，之后每一步还要多背的量 |
 
-P+R = 700，与独立的同轮 OLS 回归测得的 B = 694 互相印证——两条互不相干的路得到同一个量级，
+P+R = 695，与独立的同轮 OLS 回归测得的 B = 675 互相印证——两条互不相干的路得到同一个量级，
 说明测的是真东西。完整的推导、事件研究对照组、缓存比、极端值剔除和复现步骤见
 **[docs/cost.md](docs/cost.md)**。
 
@@ -252,7 +252,7 @@ node tools/n-scaling-report.mjs --n=10,20,40 --markdown
 
 ## 默认值是怎么定的（不是拍的）
 
-两个默认值都是从本机真实会话里量出来的，不是凭感觉选的。样本：**274 个会话 / 31,450 步 / 595 次检查点**。
+两个默认值都是从本机真实会话里量出来的，不是凭感觉选的。样本：**276 个会话 / 32,349 步 / 623 次检查点**（快照 2026-10-30，你重跑会更大）。
 
 ### `everyNSteps = 20`：真正的约束是覆盖率，不是钱
 
@@ -298,7 +298,7 @@ node tools/n-scaling-report.mjs --n=10,20,40 --markdown
 | 单轮最多触发几次 | **1 次** |
 
 - 频次：每 1000 个检查点约 **5 次**。
-- 单次成本 ≈ **¥0.0038**（追加 120 token 未命中 + 97,279 token 命中 + 输出 435 token）。
+- 单次成本 ≈ **¥0.0038**（追加 120 token 未命中 + 97,279 token 命中 + 输出 430 token）。
 - 最坏情况：上限 1 → 每轮最多 ¥0.0038（100 轮 ¥0.38）；上限 2 → ¥0.0076（¥0.76）。
 
 > 「说了就停」这 14 次全部发生在旧版提示词上：**中期版 14/299 = 4.7%，v0.4.5 起的一次性检查点 0/275 = 0%**。
@@ -319,32 +319,36 @@ node tools/n-scaling-report.mjs --n=10,20,40 --markdown
 
 | 指标 | 数值 | 口径 |
 | --- | --- | --- |
-| 会话日志 | **274 个**（128 子智能体 / 146 主智能体，0 个解析失败） | `test/verify-subagent-real.mjs` |
-| 累计模型步骤 | **31,450 步** | 所有会话的 `step/end` 计数 |
-| 自动插入的检查点 | **595 次**（592 次进度 + 3 次续跑），分布在 **43 个**会话 | `source.kind === 'step-pause'` 或注入前缀 |
+| 会话日志 | **276 个**（130 子智能体 / 146 主智能体，0 个解析失败） | `tools/snapshot.mjs` |
+| 累计模型步骤 | **32,349 步** | 所有会话的 `step/end` 计数 |
+| 自动插入的检查点 | **623 次**（620 次进度 + 3 次续跑），分布在 **43 个**会话 | `source.kind === 'step-pause'` 或注入前缀 |
 | 单个会话最多 | 3,290 步 / 133 次汇报 | `session-f02b9f10…` |
-| 「说完就停」比例 | **573 个检查点 / 14 次 = 2.4%** | `test/verify-autoresume-real.mjs` |
+| 「说完就停」比例 | **602 个检查点 / 14 次 = 2.3%**；按提示词代次拆分：中期版 **4.7%**（14/299）→ v0.4.5 起 **0%**（0/303） | `test/verify-autoresume-real.mjs` |
 | 自动续跑触发 | **3 次，3 次都真的继续干活** | 同上 |
-| 注入提示开销 | **265 token / 条**（p25 181 / p75 351） | 即成本节的常数 P |
-| 完成宣告识别 | 254 个会话、486 条纯文本收尾里判出 **13 条（2.7%）**，逐条核过都是真交付 | `declaredComplete` 回归 |
+| 注入提示开销 | **265 token / 条**（p25 182 / p75 351） | 即成本节的常数 P |
+| 完成宣告识别 | 252 条纯文本收尾里判出 **9 条（3.6%）**，逐条核过都是真交付 | `declaredComplete` 回归（v0.4.9 重测） |
 | 提示词刷屏（v0.4.5 起） | 隔离真机 5 轮：模型自述的「进度（第 N 步）」从 **52 条降到 0 条** | 同一提示词只写一次 |
+
+> 这一整张表由 `node tools/snapshot.mjs` 一次扫描产出（JSON 输出，可直接对拍）。
+> 以前这些数字是几个脚本各扫一遍再手抄进文档，快照时间一错就自相矛盾——v0.4.9 把它收敛成一个工具。
 
 三个可以直接复现的脚本：
 
 ```bash
+node tools/snapshot.mjs                # 上面整张表：会话/步骤/检查点/子智能体
 node tools/n-scaling-report.mjs        # 成本节的 P / R / B 与 N 对照表
 node test/verify-subagent-real.mjs     # 子智能体判定：真实 header 逐条断言
 node test/verify-autoresume-real.mjs   # 「说完就停」比例与续跑触发次数
 ```
 
 > **为什么这一节和成本节的注入次数对不上。**
-> 成本节报的是 594 次、这一节是 595 次——两次扫描之间日志又长了一条。
+> 两节都是 623 次：成本节只算能配上用量记录的注入，结果正好一致，不用再解释差异。
 > 会话日志在你用的时候一直在增长，任何写死的数字都会过期。
 > 每个数都是同一时刻的全量快照，你重跑就会得到更大的样本。
 >
-> 另外，成本节只统计**能配上用量记录的**注入（样本 48 个会话 / 594 次），
+> 另外，成本节只统计**能配上用量记录的**注入（样本 51 个会话 / 623 次），
 > 因为要算「每一步多背多少 token」必须同时有 prompt 用量；
-> 这一节统计的是**所有**注入（43 个会话 / 595 次）。
+> 这一节统计的是**所有**注入（43 个会话 / 623 次）。
 > 两个口径不同，数字接近但不是同一个集合。
 
 ## 兼容性
@@ -504,7 +508,7 @@ billion-context: import failed: client-modules: could not load "billion-context"
 | 9 | `maxReportsPerTurn` 只按轮计数，不受 `everyNSteps` 变化影响 | 中途把 `everyNSteps` 调小，本轮的计数不会重置，配额仍然按轮算。属设计取舍。 |
 | 9b | 数字框留空 = 回落到默认值 | 清空「每多少步汇报一次」再保存，写的是 `unset`（删掉该键），恢复成 schema 默认的 10，而不是 0。改完后设置页会立刻显示回落后的值。 |
 | 10 | `Boolean("false")` 是 `true` | 手写 `cordis.patch.yml` 时若写成 `enabled: "false"`（带引号的字符串），`Boolean("false") === true`，开关会失效。写裸的 `false` 才对。 |
-| 11 | 测试覆盖不到真实生命周期 | `test/index.test.mjs` 的 `fakeCtx` 只实现了 `on()`，没有 `effect()`/dispose，所以"插件卸载时监听是否干净移除"这条**没有测**（依赖 cordis 的作用域自动 dispose，理论上没问题，但没有测试兜底）。 |
+| 11 | 测试覆盖不到真实生命周期 | `test/index.test.mjs` 的 `fakeCtx` 只实现了 `on()`，没有 `effect()`/dispose，所以"插件卸载时监听是否干净移除"这条**没有测**（依赖 cordis 的作用域自动 dispose，理论上没问题，但没有测试兜底）。客户端那侧同理：`test/client.test.mjs` 手搓的 React 运行时只覆盖状态逻辑，不覆盖真实 React 的并发渲染与事件系统。 |
 | 12 | 兼容性只声明到 `0.2.1-rc.2` | `dsh.compatibility.dshReleases` 只写了 `0.2.0-rc.2` / `0.2.1-rc.2`。更新的 DSH 上如果 `agent/pre-step` 或 `agent/turn-stopping` 的 payload 形状变了，插件**不会报错，只会静默不生效**。 |
 | 13 | 与其它 `agent/pre-step` 监听器的顺序耦合 | 本插件用 `{ prepend: true }` 抢在最外层，先 `await next()` 拿到下游（含 compaction）的决策，再往批次**末尾**追加。如果将来有别的插件也 prepend 并且**不**调 `next()`，本插件会被短路。 |
 | 14 | 短宣告「已完成」只在**行首**算完成 | 模型收尾只写「已完成」时会被认作完成并放手；但「我已完成第一步」这类句中用法不算。若模型把完成宣告写在长句中间，第六道刹车仍会保守地认为「没宣告完成」而续跑一次。属刻意取舍：宁可多跑一次，也不误判正在干活的任务。 |
@@ -533,7 +537,8 @@ billion-context: import failed: client-modules: could not load "billion-context"
 
 ```bash
 npm install          # 只装 @deepseek-ai/schemastery（dev）
-npm test             # 41 组断言
+npm test             # 主机 41 组断言 + 客户端 10 组断言
+npm run test:mutations   # 变异测试：把每处修复改回旧行为，确认用例真的会红
 ```
 
 测试覆盖：只在第 N 步注入、同步去重、消息形状与冻结、`showPromptInChat` 两种来源、
@@ -552,12 +557,24 @@ header 缺失时靠 `AgentRegistry.roots()` 兜底 + 注册表判不了/抛错�
 **不改下游决策的其它字段**（`startsRequestSeries` 与未知字段原样保留、不就地改下游对象、
 不干预时原样返回同一个对象））。
 
+**客户端（配置页）另有 `test/client.test.mjs`**：用一个最小 React 运行时
+（`useState`/`useEffect`/`useRef` + 手搓 `jsx`/`jsxs`）把 `lib/client.js` 真的挂起来，
+假 `ctx` 里的 `configForms` 复刻了「`unset` 会推动 revision」这一真实行为，
+然后逐条断言页面结构、草稿保留、放弃/重置、`unset` 语义、禁用态等 10 条。
+渲染是**稳定化重渲染**（反复渲染到某一轮没有 effect 执行），否则「外部 revision 变化时保留草稿」
+这类在 effect 里改状态的修复根本测不到。
+
+**为什么还要 `test/verify-client-mutations.mjs`**：测试全绿不代表它在测东西。这个脚本把每处修复
+临时改回旧行为再跑一遍测试，只有对应用例变红才算守住。当前 4 处被守住、1 处是冗余兜底
+（`resetKey` 的 `inFlight` 与 `draftRef` 守卫互相覆盖，单独撤掉观察不到，组合撤掉才有反应，
+所以另有一条组合用例）、0 处漏测。
+
 另有 `test/verify-subagent-real.mjs`：只读扫描本机真实会话日志（`~/.dsh/sessions/**/session.v4.jsonl.zstd`），
-用真实 header 调用插件里的 `isSubagent` 断言判定结果，避免用假数据自证。当前样本 274 个会话
-（128 个真子智能体 / 4 个 fork / 其余主智能体）全部通过。
+用真实 header 调用插件里的 `isSubagent` 断言判定结果，避免用假数据自证。当前样本 276 个会话
+（130 个真子智能体 / 4 个 fork / 其余主智能体）全部通过。
 
 还有 `test/verify-autoresume-real.mjs`：同样只读扫本机日志，统计「说了就停」的实际比例
-（截至写稿时 210 个检查点里 14 次，6.7%；样本随日志增长会变）并统计自动续跑触发了几次、触发后这一轮是否真的继续干活。
+（截至写稿时 602 个检查点里 14 次，2.3%；按提示词代次拆分：中期版 4.7%、v0.4.5 起 0%；样本随日志增长会变）并统计自动续跑触发了几次、触发后这一轮是否真的继续干活。
 **它只统计已经发生过的事**——刚升级完看到「自动续跑触发：0」是正常的，那说明新版本还没跑到过
 一个会停的检查点。
 
@@ -569,13 +586,16 @@ dsh-step-pause/
 ├── lib/client.js              # 浏览器半边：插件页配置页 + 侧边栏头像→设置 的配置段
 ├── locale/{zh,en}.json        # 插件页标题与描述
 ├── icon.svg                   # 插件页图标
-├── test/index.test.mjs        # 离线行为测试（41 组断言）
+├── test/index.test.mjs        # 主机离线行为测试（41 组断言）
+├── test/client.test.mjs       # 客户端配置页测试（10 组断言，最小 React 运行时）
+├── test/verify-client-mutations.mjs  # 变异测试：确认上面那些用例真的会红
 ├── test/verify-subagent-real.mjs  # 用本机真实会话日志验证子智能体判定
 ├── docs/config-page.png       # 实测截图
 ├── docs/cost.md               # N 越大越省：实测证据与定价换算
 ├── docs/overhead-vs-n.svg     # 开销随 N 变化的曲线（与文档同源生成）
 ├── docs/auto-resume.md        # 说了就停的成因与自动续跑的六道刹车
 └── tools/
+    ├── snapshot.mjs           # 一次扫描出「实测数据」整张表的数字（JSON）
     ├── n-scaling-report.mjs   # 跨会话统计：实测 P/R/B 并画出 N 对照表
     └── cost-report.mjs        # 单会话成本核算
 ```
@@ -618,11 +638,11 @@ never touch subagents, only rescue a reply that ended without any tool call (a t
 `concludeTurn()` — or one we cannot read — is left alone), and back off the moment the model says
 "任务已完成 / all done". See [docs/auto-resume.md](docs/auto-resume.md).
 
-**Measured, not estimated.** On this machine, across 274 real session logs (31,450 model steps,
-595 injected checkpoints in 43 sessions), a report costs about **0.0021–0.0032 CNY** on
-`deepseek-flash` idle pricing — roughly 0.10 CNY per 1,000 steps at the default N=20. The share of
+**Measured, not estimated.** On this machine, across 276 real session logs (32,349 model steps,
+623 injected checkpoints in 43 sessions), a checkpoint costs about **0.003 CNY** on
+`deepseek-flash` idle pricing — roughly 0.43 CNY per 1,000 steps at the default N=20. The share of
 checkpoints where the model stopped without continuing fell from **4.7%** (the older series-style
-prompt, 299 checkpoints) to **0%** (the one-shot checkpoint, 275 checkpoints). Reproduce with
+prompt, 299 checkpoints) to **0%** (the one-shot checkpoint, 303 checkpoints). Reproduce with
 `node tools/cost-report.mjs <session.v4.jsonl.zstd>`, `node test/verify-subagent-real.mjs`, and
 `node test/verify-autoresume-real.mjs`.
 

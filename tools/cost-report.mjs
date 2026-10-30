@@ -107,7 +107,22 @@ const target = args.find((a) => !a.startsWith('--'))
 const model = (args.find((a) => a.startsWith('--model=')) || '--model=flash').split('=')[1]
 const peak = args.includes('--peak')
 const markerArg = args.find((a) => a.startsWith('--marker='))
-const marker = markerArg ? new RegExp(markerArg.split('=').slice(1).join('=')) : /进度小结（第\s*\d+\s*步）|^\s*\*\*进度小结/
+// `--marker` 是用户输入的正则源码：写坏了（`--marker='['`）必须给一句人话，
+// 而不是把 `SyntaxError: Unterminated character class` 原样抛到栈上。
+let marker
+if (markerArg) {
+  const source = markerArg.split('=').slice(1).join('=')
+  try {
+    marker = new RegExp(source)
+  } catch (error) {
+    console.error(`--marker 不是合法的正则：${source}`)
+    console.error(`  ${error.message}`)
+    console.error('  例：--marker="进度小结（第\\\\s*\\\\d+\\\\s*步）"')
+    process.exit(1)
+  }
+} else {
+  marker = /进度小结（第\s*\d+\s*步）|^\s*\*\*进度小结/
+}
 
 if (!target) {
   console.error('用法: node tools/cost-report.mjs <session.v4.jsonl.zstd | 会话目录 | sessions 根目录> [--model=flash|pro] [--peak] [--marker=正则]')
@@ -187,7 +202,7 @@ console.log(`| 输出 token（中位） | ${midOut} | ${median(normals.map((x) =
 console.log(`| 文本字符（均值） | ${mean(checkpoints.map((x) => x.chars))} | ${mean(normals.map((x) => x.chars))} |`)
 console.log()
 console.log(`- 注入提示：平均 **${avgInjectedTokens} token/条**（实测 ${injected} 条共 ${injectedChars} 字符）`)
-console.log(`- 全部汇报累计输出：**${ckTotalOut} token**，占本会话总输出 ${totalOut} 的 **${((ckTotalOut / totalOut) * 100).toFixed(2)}%**`)
+console.log(`- 全部汇报累计输出：**${ckTotalOut} token**，占本会话总输出 ${totalOut} 的 **${totalOut > 0 ? `${((ckTotalOut / totalOut) * 100).toFixed(2)}%` : '－（本会话没有可统计的输出）'}**`)
 console.log()
 console.log('### 单次汇报成本\n')
 console.log('```')
@@ -200,7 +215,7 @@ console.log(`- 本会话 ${checkpoints.length} 次汇报合计：**${costOf(ckTo
 console.log(`- 缓存命中读取（几乎不花钱）：全程 ${totalHit} token 命中，按 ${hit}元/M 计 = ${((totalHit * hit) / 1e6).toFixed(4)} 元（含非插件内容）`)
 console.log()
 console.log('### 规模换算\n')
-console.log('| 任务步数 | N=10（默认） | N=20 |')
+console.log('| 任务步数 | N=10 | N=20（默认） |')
 console.log('| --- | --- | --- |')
 for (const steps_ of [100, 500, 1000, 5000]) {
   const perReport = costOf(avgInjectedTokens, midOut)

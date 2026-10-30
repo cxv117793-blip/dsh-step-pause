@@ -20,7 +20,7 @@
  *   node tools/n-scaling-report.mjs --steps=1000 --n=10,20,40
  *   node tools/n-scaling-report.mjs --markdown          # 输出可直接贴进文档的表格
  *
- * 只读日志，不联网，不写任何文件。
+ * 只读日志，不联网。默认不写文件；只有带 --svg 时才会写出那张图。
  */
 
 import fs from 'node:fs'
@@ -32,11 +32,32 @@ const MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
 const INJECT_PREFIX = '[自动 · 分步暂停'
 
 const argv = process.argv.slice(2)
-const flag = (name, dflt) => {
+const flagRaw = (name, dflt) => {
   const hit = argv.find((a) => a === `--${name}` || a.startsWith(`--${name}=`))
   if (!hit) return dflt
   const eq = hit.indexOf('=')
   return eq < 0 ? true : hit.slice(eq + 1)
+}
+// 布尔旗标：`--svg` 与 `--svg=1` 都是开，`--svg=0`/`=false`/`=no` 是关。
+// 早期版本直接返回字符串，于是 `--svg=0` 反而是真值、关不掉输出。
+const flag = (name, dflt) => {
+  const v = flagRaw(name, dflt)
+  if (typeof v !== 'string') return v
+  const t = v.trim().toLowerCase()
+  if (t === '0' || t === 'false' || t === 'no' || t === 'off') return false
+  if (t === '1' || t === 'true' || t === 'yes' || t === 'on') return true
+  return v
+}
+// 数值参数：必须是真的正整数，坏输入当场报错退出，而不是把 NaN 传下去算出 `-698`。
+const positiveInt = (name, dflt) => {
+  const v = flagRaw(name, dflt)
+  if (typeof v === 'boolean') return dflt
+  const n = Number(v)
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+    console.error(`--${name} 需要一个正整数，收到的是 ${JSON.stringify(String(v))}`)
+    process.exit(1)
+  }
+  return n
 }
 
 /** 多帧 zstd：每条记录一个 frame，标准解压器只吃第一帧，必须按魔数切。 */
@@ -310,11 +331,26 @@ const cacheRep = +(median(repSteps.map(cacheRatio)) * 100).toFixed(1)
 const cacheOrd = +(median(ordSteps.map(cacheRatio)) * 100).toFixed(1)
 
 // ---------- 5. 开销曲线 ----------
-const S = Number(flag('steps', 200))
-const ns = String(flag('n', '1,2,5,10,15,20,30,40,50,100'))
+const S = positiveInt('steps', 200)
+const nRaw = String(flagRaw('n', '1,2,5,10,15,20,30,40,50,100'))
+  // `--n 10,20` 是空格分隔写法：flagRaw 只认等号，会把它当成位置参数 root。
+  // 这里显式指出，免得用户以为筛选生效了、实际算的是全量。
+  if (argv.includes('--n')) {
+    console.error('--n 必须写成 --n=10,20,40（等号形式），空格分隔会被当成会话目录参数。')
+    process.exit(1)
+  }
+  const ns = nRaw
   .split(',')
-  .map(Number)
-  .filter((x) => x > 0)
+  .map((x) => x.trim())
+  .filter((x) => x.length > 0)
+  .map((x) => {
+    const n = Number(x)
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+      console.error(`--n 里的每一项都必须是正整数，收到的是 ${JSON.stringify(x)}`)
+      process.exit(1)
+    }
+    return n
+  })
 
 const rows = ns.map((N) => {
   const k = Math.floor((S - 1) / N)
@@ -378,7 +414,16 @@ if (flag('json', false)) {
 
 // 图表与表格必须出自同一次计算，否则文档里会出现两个 B。
 if (flag('svg', false)) {
-  const out = String(flag('out', 'docs/overhead-vs-n.svg'))
+  const out = String(flagRaw('out', 'docs/overhead-vs-n.svg'))
+  if (rows.length < 2) {
+    console.error('画趋势线至少需要两个 N，当前只有 ' + rows.length + ' 个：' + rows.map((r) => r.N).join(', '))
+    console.error('例：--n=5,10,20,40')
+    process.exit(1)
+  }
+  if (new Set(rows.map((r) => r.N)).size < 2) {
+    console.error('所有 N 都相同（' + rows[0].N + '），横轴 log10 会除零；请给至少两个不同的 N。')
+    process.exit(1)
+  }
   const W = 720
   const H = 400
   const padL = 86
@@ -436,6 +481,8 @@ if (flag('svg', false)) {
     `<text x="${((W - padR + padL) / 2).toFixed(1)}" y="${H - 18}" font-size="11" text-anchor="middle" fill="#64748b">汇报间隔 N（对数轴）</text>`,
   )
   p.push(`</svg>`)
+  // 在仓库外跑时 `docs/` 不一定存在，早期版本在这里直接 ENOENT 崩掉。
+  fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true })
   fs.writeFileSync(out, p.join('\n') + '\n', 'utf8')
   console.error(`wrote ${out}`)
 }
