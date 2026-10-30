@@ -3,7 +3,7 @@
 > **每 N 步自动停下来汇报一次进度，说完立刻继续。**
 > 不占额外回合、不等你回复、不生成文档 —— 就几行对话正文。
 
-[![v0.4.5](https://img.shields.io/badge/release-v0.4.5-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
+[![v0.4.6](https://img.shields.io/badge/release-v0.4.6-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.2-4d6bfe)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![tests](https://img.shields.io/badge/tests-41%20groups%20green-brightgreen)](https://github.com/cxv117793-blip/dsh-step-pause#开发)
@@ -63,7 +63,7 @@ dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
 https://github.com/cxv117793-blip/dsh-step-pause/releases/latest/download/dsh-step-pause.tgz
 
 # 带版本号（钉死到某个版本时用）
-https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.4.5/dsh-step-pause-0.4.5.tgz
+https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.4.6/dsh-step-pause-0.4.6.tgz
 ```
 
 > 桌面版的安装框支持「npm 包、Git 仓库和本地目录」，把上面这条 URL 粘进去即可。
