@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict'
 import {
   apply,
+  blankEnding,
   Config,
   declaredComplete,
   endedWithToolCall,
@@ -968,6 +969,208 @@ async function stopAtCheckpoint(config, { step = 10, turn = 1, registry, resumea
   const decision = { kind: 'enter', messages: [], startsRequestSeries: true }
   const out = await run(payloadOf(1, 1), decision)
   assert.equal(out, decision, '不干预时必须返回原对象')
+}
+
+// 14. blankEnding：末步是不是一条既没有正文、也没有工具调用的空回复
+//
+// 真实事故（session-05a78471）：模型把工具调用语法当 reasoning 吐了出来，
+// 正文与 tool-call 全空，只有 13 个 output token 的 reasoning 残片。
+// 驱动器判 completed，于是 391 步的一轮「正常结束」，任务还剩一大半。
+{
+  const withContent = (content) => [{ role: 'assistant', content }]
+
+  assert.equal(
+    blankEnding(null, withContent([{ type: 'reasoning', text: '</｜｜DSML｜｜ invoke>' }])),
+    true,
+    '只有 reasoning 的空回复应判为崩溃',
+  )
+  assert.equal(
+    blankEnding(null, withContent([{ type: 'text', text: '任务已完成。' }])),
+    false,
+    '有正文就不是空回复',
+  )
+  assert.equal(
+    blankEnding(null, withContent([{ type: 'tool-call', name: 'x', arguments: '{}' }])),
+    false,
+    '有工具调用就不是空回复',
+  )
+  assert.equal(
+    blankEnding(null, withContent([{ type: 'text', text: '   \n\t ' }])),
+    true,
+    '正文只有空白也算空回复',
+  )
+  assert.equal(
+    blankEnding(null, withContent([
+      { type: 'text', text: '接下来跑测试。' },
+      { type: 'tool-call', name: 'bash', arguments: '{}' },
+    ])),
+    false,
+    '正文+工具调用当然不是空回复',
+  )
+  assert.equal(blankEnding(null, withContent([])), true, '完全空的内容也算空回复')
+
+  // 尾部不是 assistant 消息时跳过它，看最后一条 assistant。
+  assert.equal(
+    blankEnding(null, [
+      { role: 'assistant', content: [{ type: 'reasoning', text: '残片' }] },
+      { role: 'user', content: [{ type: 'text', text: '继续' }] },
+    ]),
+    true,
+    '尾部有 user 消息时仍以最后一条 assistant 为准',
+  )
+  // 读不出来一律 undefined，由调用方保守处理（不放宽刹车一）。
+  assert.equal(blankEnding(null, []), undefined, '空快照判不了')
+  assert.equal(blankEnding(null, undefined ?? undefined), undefined, '没快照没 session 判不了')
+  assert.equal(
+    blankEnding({ session: { deriveMessages: () => [{ role: 'assistant', content: 'oops' }] } }),
+    undefined,
+    'content 不是数组时判不了',
+  )
+  assert.equal(
+    blankEnding({
+      session: {
+        deriveMessages() {
+          throw new Error('boom')
+        },
+      },
+    }),
+    undefined,
+    '读 session 抛错时判不了，不冒泡',
+  )
+}
+
+// 14b. shouldAutoResume 的 blankEnding 判据：放宽刹车一，但仍受配额与其它刹车约束
+{
+  const okState = {
+    turn: 1,
+    step: 21, // 比检查点（第 20 步）晚一步
+    injectedTurn: 1,
+    injectedStep: 20,
+    autoResumes: 0,
+    resumedStep: 0,
+  }
+  const opts = { enabled: true, autoResume: true, maxAutoResumesPerTurn: 2 }
+  const baseInput = {
+    state: okState,
+    turn: 1,
+    opts,
+    aborted: false,
+    isSubagent: false,
+    endedWithToolCall: false,
+    declaredDone: false,
+  }
+
+  assert.equal(
+    shouldAutoResume(baseInput),
+    false,
+    '普通情况下离检查点一步就不救（原有行为不变）',
+  )
+  assert.equal(
+    shouldAutoResume({ ...baseInput, blankEnding: true }),
+    true,
+    '空回复崩溃时放宽刹车一，应该救',
+  )
+  assert.equal(
+    shouldAutoResume({ ...baseInput, blankEnding: false }),
+    false,
+    '明确不是空回复时保持原判据',
+  )
+  assert.equal(
+    shouldAutoResume({ ...baseInput, blankEnding: undefined }),
+    false,
+    '判不了时按未崩溃处理（保守）',
+  )
+
+  // 真实事故的步数形态：检查点在第 380 步，崩在第 391 步（差 11 步）。
+  assert.equal(
+    shouldAutoResume({
+      ...baseInput,
+      state: { ...okState, step: 391, injectedStep: 380 },
+      blankEnding: true,
+    }),
+    true,
+    'session-05a78471 的真实形态（差 11 步）应该被救回来',
+  )
+
+  // 其它刹车照旧优先：崩溃也不能越过用户取消 / 配额 / 子智能体 / 关闭开关。
+  assert.equal(
+    shouldAutoResume({ ...baseInput, blankEnding: true, aborted: true }),
+    false,
+    '用户取消优先于崩溃续跑',
+  )
+  assert.equal(
+    shouldAutoResume({ ...baseInput, blankEnding: true, isSubagent: true }),
+    false,
+    '子智能体不因崩溃而续跑',
+  )
+  assert.equal(
+    shouldAutoResume({
+      ...baseInput,
+      blankEnding: true,
+      state: { ...okState, autoResumes: 2 },
+    }),
+    false,
+    '配额用尽后崩溃也不救',
+  )
+  assert.equal(
+    shouldAutoResume({
+      ...baseInput,
+      blankEnding: true,
+      opts: { ...opts, autoResume: false },
+    }),
+    false,
+    '关掉自动续跑后崩溃也不救',
+  )
+  assert.equal(
+    shouldAutoResume({ ...baseInput, blankEnding: true, turn: 2 }),
+    false,
+    '崩溃判据仍要求注入发生在本轮',
+  )
+  assert.equal(
+    shouldAutoResume({
+      ...baseInput,
+      blankEnding: true,
+      state: { ...okState, injectedStep: 0 },
+    }),
+    false,
+    '本轮从未注入过检查点时不救（短轮崩溃覆盖不到，这是已知局限）',
+  )
+}
+
+// 14c. 端到端：空回复崩溃 → 真的 steer 了续跑提示；正常文本收尾 → 不 steer
+{
+  const run = setup({ everyNSteps: 10 })
+  const stop = turnStoppingHandler()
+
+  // 崩溃形态：第 10 步注入检查点，第 11 步崩成空回复。
+  const crashed = steerableAgent({
+    session: {
+      id: 'main',
+      header: { id: 'main' },
+      deriveMessages: () => [
+        { role: 'assistant', content: [{ type: 'reasoning', text: '</｜｜DSML｜｜ invoke>' }] },
+      ],
+    },
+  })
+  await run(payloadOf(10, 1, { agent: crashed.agent }), base)
+  await run(payloadOf(11, 1, { agent: crashed.agent }), base)
+  stop({ agent: crashed.agent, turn: 1, signal: { aborted: false } })
+  assert.equal(crashed.steered.length, 1, '空回复崩溃时应该 steer 一条续跑提示')
+
+  // 正常收尾：同样的步数，但末步有正文 —— 不该被救。
+  const normal = steerableAgent({
+    session: {
+      id: 'main',
+      header: { id: 'main' },
+      deriveMessages: () => [
+        { role: 'assistant', content: [{ type: 'text', text: '任务已完成。' }] },
+      ],
+    },
+  })
+  await run(payloadOf(10, 1, { agent: normal.agent }), base)
+  await run(payloadOf(11, 1, { agent: normal.agent }), base)
+  stop({ agent: normal.agent, turn: 1, signal: { aborted: false } })
+  assert.equal(normal.steered.length, 0, '正常收尾在离开检查点后不该被救')
 }
 
 console.log('all green')

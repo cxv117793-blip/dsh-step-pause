@@ -101,7 +101,7 @@ inject(input)   { this.send(input, "next-step", false); }
 
 ## 但「能拉回来」也意味着「可能停不下来」
 
-这是必须认真对待的风险：自动续跑本质上是在跟用户抢方向盘。所以六条刹车都是**默认保守**——任何一条不满足就放手，让这一轮正常结束。
+这是必须认真对待的风险：自动续跑本质上是在跟用户抢方向盘。所以六条刹车（外加一条针对崩溃的例外）都是**默认保守**——任何一条不满足就放手，让这一轮正常结束。
 
 判断逻辑收在一个纯函数 `shouldAutoResume()` 里，逐条可测：
 
@@ -110,7 +110,8 @@ inject(input)   { this.send(input, "next-step", false); }
 ```js
 const atCheckpoint = state.step === state.injectedStep
 const atResumedStep = Number.isInteger(state.resumedStep) && state.step === state.resumedStep
-if (!atCheckpoint && !atResumedStep) return false
+const crashedAtStep = crashed === true
+if (!atCheckpoint && !atResumedStep && !crashedAtStep) return false
 ```
 
 只有「这一轮刚刚结束的那一步，正好是注入汇报提示词的那一步」才考虑续跑。这精确对应实测里「14 次停止全部落在检查点」的形态。
@@ -118,6 +119,34 @@ if (!atCheckpoint && !atResumedStep) return false
 如果模型汇报完又干了七八步才自然收尾（任务真做完了），那**不是**我们要救的场景，绝不干预。
 
 `atResumedStep` 是给「救了之后它又纯文本收尾」留的——但那仍然受配额限制，不会无限循环。
+
+`crashedAtStep` 是 v0.5.0 加的第三条例外，见下一节。
+
+### 刹车一之例外：末步是一条空回复（崩溃）
+
+2026-11-02 的真实事故（`session-05a78471`）：一轮跑到第 391 步时，模型把工具调用语法当成 reasoning 吐了出来——
+
+```
+"  </｜｜DSML｜｜ parameter>\n</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>"
+```
+
+正文为空、tool-call 为空，只有 13 个 output token 的残片。驱动器 `step()` 里 `toolCalls.length === 0` → `completed`，于是这一轮「正常结束」，任务还剩一大半。检查点在第 380 步，它崩在第 391 步，**差 11 步**——正好落在刹车一管不到的地方。
+
+判据是本步新增的 `blankEnding(agent, messages)`：末条 assistant 消息里既没有 `text`（trim 后非空）、也没有 `tool-call` → `true`。它只在**本轮已经注入过检查点**之后才可能起作用（前面 `injectedTurn !== turn` 先拦住），并且仍要过"尊重取消 / 不碰子智能体 / 只救纯文本收尾 / 说完成就放手 / 配额"这五道。
+
+**为什么不能只放宽距离**：要把这 11 步包进来得放宽到 K=12，本机 137 个正常收尾轮次里会误伤 100 个（73%），因为正常收尾离检查点的距离分布是——距 0 步 9.5%、1 步 2.9%、2–3 步 15.3%、4–6 步 13.1%、**7–12 步 32.1%、13–20 步 25.5%**。"离检查点远"跟"正常收尾"高度重合，没法用距离区分。
+
+**为什么"有没有正文"能区分**：全库 33,905 条 assistant 消息的交叉表——
+
+| 形态 | 条数 | `interrupted` | `turn/end` | `usage.outputTokens` |
+|---|---|---|---|---|
+| 空白 | 39 | `true` | `aborted` | 缺失（流被截断） |
+| 空白 | **1** | **`false`** | **`completed`** | **13** ← 这次崩溃 |
+| 有正文/工具 | 33,865 | — | 各种 | 有 |
+
+39 条空白全是用户点了停止，早在刹车三（`aborted === true`）就 `return false` 了；唯一的 1 条非中断空白就是这次崩溃。**在 716 个真实收尾轮次上跑一遍：`blankEnding` 判 `true` 40 次，其中 39 次是 aborted（被刹车三拦掉），剩 1 次是崩溃。误伤 0。**
+
+**局限**：短轮崩溃救不了——一轮只跑 5 步、还没到第一个检查点就崩的，`injectedTurn !== turn` 会先返回 false。那属于驱动器的责任。
 
 ### 刹车二：每轮最多救 N 次（默认 2，0 = 关）
 
@@ -276,7 +305,7 @@ const COMPLETION_MARKERS = [
 - 判定逻辑：`lib/index.js` 的 `shouldAutoResume()`、`RESUME_PROMPT`、`agent/turn-stopping` 监听
 - 提示词：`lib/index.js` 的 `DEFAULT_PROMPT`
 - 设置页控件：`lib/client.js`（`autoResume` 开关 与 `maxAutoResumesPerTurn` 数字框）
-- 测试：`test/index.test.mjs` 第 12 组（12a–12u，含 12q2 开头宣告），覆盖六条刹车、配额耗尽、换轮重置、与 steer 抛错、`endedWithToolCall` 与 `declaredComplete` 的直测、两个判据共用同一份会话快照、没有 agent 时不串号；第 13 组是「不改下游决策」的契约测试（`startsRequestSeries` / 未知字段必须原样保留、不就地修改下游对象、不干预时返回同一对象）
+- 测试：`test/index.test.mjs` 第 12 组（12a–12u，含 12q2 开头宣告），覆盖七条刹车、配额耗尽、换轮重置、与 steer 抛错、`endedWithToolCall` 与 `declaredComplete` 的直测、两个判据共用同一份会话快照、没有 agent 时不串号；第 13 组是「不改下游决策」的契约测试（`startsRequestSeries` / 未知字段必须原样保留、不就地修改下游对象、不干预时返回同一对象）；第 14 组（14a/14b/14c）是 v0.5.0 的空回复崩溃：`blankEnding` 直测 10 条、`shouldAutoResume` 的放宽与"其它刹车仍然优先"10 条、以及端到端 2 条（崩溃真 steer、正常收尾不 steer）
 
 ---
 
@@ -290,8 +319,9 @@ const COMPLETION_MARKERS = [
 
 **Fix 2 (hard backstop).** Listen on `agent/turn-stopping`. The driver awaits that event *before* re-checking whether `next-step` is empty, so a `steer()` from the listener keeps the turn open — documented as "can be kept open by steering".
 
-**Six brakes, all defaulting to "let it end":**
-1. Only rescue when the turn stopped exactly on the checkpoint step (the shape seen in all 14/14 stops of the diagnostic sample).
+**Six brakes (plus one crash exception), all defaulting to "let it end":**
+1. Only rescue when the turn stopped exactly on the checkpoint step (the shape seen in all 14/14 stops of the diagnostic sample) — **or** when the closing step is a blank reply, see brake 1b.
+1b. A blank final reply (no `text`, no `tool-call` inside the last assistant message) is a crash, not a finish, so the step-distance rule is waived for it (v0.5.0). Real incident `session-05a78471`: the model emitted tool-call syntax as reasoning, the driver saw zero tool calls and marked the turn `completed` at step 391 while the checkpoint was at step 380. Measured on 716 real turn endings, `blankEnding()` fires 40 times: 39 are user aborts (already stopped by brake 3) and 1 is that crash — **zero false positives**. Widening the distance instead would need K=12 and would misfire on 100 of 137 normal endings (73%), because 32% of normal endings land 7–12 steps past a checkpoint.
 2. At most `maxAutoResumesPerTurn` rescues per turn (default 2; `0` disables), reset each turn.
 3. Never revive a turn whose signal was aborted.
 4. Never touch child agents.

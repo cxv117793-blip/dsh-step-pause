@@ -3,10 +3,10 @@
 > **每 N 步自动停下来汇报一次进度，说完立刻继续。**
 > 不占额外回合、不等你回复、不生成文档 —— 就几行对话正文。
 
-[![v0.4.9](https://img.shields.io/badge/release-v0.4.9-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
+[![v0.5.0](https://img.shields.io/badge/release-v0.5.0-2ea44f)](https://github.com/cxv117793-blip/dsh-step-pause/releases/latest)
 [![DSH](https://img.shields.io/badge/DeepSeek%20Harness-0.2.1--rc.2-4d6bfe)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
 [![node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-339933)](https://github.com/cxv117793-blip/dsh-step-pause#兼容性)
-[![tests](https://img.shields.io/badge/tests-41%20groups%20green-brightgreen)](https://github.com/cxv117793-blip/dsh-step-pause#开发)
+[![tests](https://img.shields.io/badge/tests-44%20groups%20green-brightgreen)](https://github.com/cxv117793-blip/dsh-step-pause#开发)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **中文** ｜ [English summary](#english-summary)
@@ -64,7 +64,7 @@ dsh plugin --profile <你的profile> add file:<这个仓库的绝对路径>
 https://github.com/cxv117793-blip/dsh-step-pause/releases/latest/download/dsh-step-pause.tgz
 
 # 带版本号（钉死到某个版本时用）
-https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.4.9/dsh-step-pause-0.4.9.tgz
+https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.5.0/dsh-step-pause-0.5.0.tgz
 ```
 
 > 桌面版的安装框支持「npm 包、Git 仓库和本地目录」，把上面这条 URL 粘进去即可。
@@ -488,16 +488,31 @@ billion-context: import failed: client-modules: could not load "billion-context"
 在有停止的样本里，14 次停止 **14 次全部**落在注入提示词的那一步，详见
 [docs/auto-resume.md](docs/auto-resume.md)）。
 
-它确实是在跟用户抢方向盘，所以有六道刹车，任何一条不满足就放手：
+它确实是在跟用户抢方向盘，所以有六道刹车（外加一条针对崩溃的例外），任何一条不满足就放手：
 
 | 刹车 | 行为 |
 |---|---|
 | 只在检查点上救 | 只有"结束步 == 刚注入提示词的那一步"才考虑，模型汇报完又干了七八步才自然收尾的情况**绝不干预** |
+| └ 例外：空回复崩溃 | 末步既没有正文、也没有工具调用时（模型把工具调用语法当 reasoning 吐出来，一步 13 个 token 就结束了），不再要求"正好停在检查点"，照样救。这道口子是 v0.5.0 加的，见下文 |
 | 每轮配额 | `maxAutoResumesPerTurn` 默认 **2**，用完就不再救，换轮重置 |
 | 尊重取消 | `signal.aborted` 为真时绝不复活 |
 | 不碰子智能体 | 与 `mainAgentOnly` 一致 |
 | 只救纯文本收尾 | 最后一条 assistant 消息里带 tool call（工具自己 `concludeTurn()`）时不救；读不出来也不救 |
 | 模型说完成就放手 | 收尾那行写了「任务已完成 / all done」等标记时不救 |
+
+**为什么单为"空回复"开一个口子**：2026-11-02 有个会话跑到第 391 步时，模型把工具调用语法
+（`</｜｜DSML｜｜ invoke>`）当成 reasoning 吐了出来，正文和 tool-call 都是空的。驱动器只看
+"有没有 tool call"，于是判 `completed`，一轮就此结束，任务还剩一大半——而且 `turn/end` 记的是
+`completed`，从日志上看跟正常收尾一模一样。
+
+只放宽"距离"是救不了它的：它停在检查点后第 11 步，要把距离放宽到 12 步，代价是**误伤 100/137
+（73%）个正常收尾**（本机 137 个正常收尾轮次里，32% 落在距检查点 7–12 步、26% 落在 13–20 步）。
+而"有没有正文"这个判据在 716 个真实轮次里只命中 40 次——其中 **39 次是用户按了停止**（带
+`interrupted: true`、`turn/end=aborted`，早在"尊重取消"那道就放手了），剩下 1 次正是这次崩溃。
+**零误伤。**
+
+它的局限也很明确：只在**本轮已经注入过检查点之后**才可能触发。一轮只跑了 5 步、还没到检查点
+就崩的，救不了——那属于驱动器的责任，插件不该为此把刹车一整个拆掉。
 
 要彻底不要这个行为：设置页关掉「停下后自动拉回来继续」，或把「每轮最多自动续跑几次」填 `0`。
 
@@ -512,6 +527,8 @@ billion-context: import failed: client-modules: could not load "billion-context"
 | 12 | 兼容性只声明到 `0.2.1-rc.2` | `dsh.compatibility.dshReleases` 只写了 `0.2.0-rc.2` / `0.2.1-rc.2`。更新的 DSH 上如果 `agent/pre-step` 或 `agent/turn-stopping` 的 payload 形状变了，插件**不会报错，只会静默不生效**。 |
 | 13 | 与其它 `agent/pre-step` 监听器的顺序耦合 | 本插件用 `{ prepend: true }` 抢在最外层，先 `await next()` 拿到下游（含 compaction）的决策，再往批次**末尾**追加。如果将来有别的插件也 prepend 并且**不**调 `next()`，本插件会被短路。 |
 | 14 | 短宣告「已完成」只在**行首**算完成 | 模型收尾只写「已完成」时会被认作完成并放手；但「我已完成第一步」这类句中用法不算。若模型把完成宣告写在长句中间，第六道刹车仍会保守地认为「没宣告完成」而续跑一次。属刻意取舍：宁可多跑一次，也不误判正在干活的任务。 |
+| 15 | 空回复续跑覆盖不到短轮崩溃 | 一轮还没跑到第一个检查点就崩（比如只跑了 5 步），`injectedTurn !== turn` 会先返回 false，救不了。要覆盖它就得拆掉刹车一，那会误伤 73% 的正常收尾——所以不做。 |
+| 16 | 空白消息不区分「模型吐出空回复」和「上游返回空内容」 | `blankEnding` 只看消息形状。如果将来某个 provider 因内容审查等原因返回合法但空的内容，也会被当成崩溃救一次——最坏是空转一步，受 `maxAutoResumesPerTurn` 封顶（默认 2 次，约 ¥0.008）。 |
 
 ### 它不会造成什么（也验证过）
 
@@ -537,7 +554,7 @@ billion-context: import failed: client-modules: could not load "billion-context"
 
 ```bash
 npm install          # 只装 @deepseek-ai/schemastery（dev）
-npm test             # 主机 41 组断言 + 客户端 10 组断言
+npm test             # 主机 44 组断言 + 客户端 10 组断言
 npm run test:mutations   # 变异测试：把每处修复改回旧行为，确认用例真的会红
 ```
 
@@ -586,14 +603,14 @@ dsh-step-pause/
 ├── lib/client.js              # 浏览器半边：插件页配置页 + 侧边栏头像→设置 的配置段
 ├── locale/{zh,en}.json        # 插件页标题与描述
 ├── icon.svg                   # 插件页图标
-├── test/index.test.mjs        # 主机离线行为测试（41 组断言）
+├── test/index.test.mjs        # 主机离线行为测试（44 组断言）
 ├── test/client.test.mjs       # 客户端配置页测试（10 组断言，最小 React 运行时）
 ├── test/verify-client-mutations.mjs  # 变异测试：确认上面那些用例真的会红
 ├── test/verify-subagent-real.mjs  # 用本机真实会话日志验证子智能体判定
 ├── docs/config-page.png       # 实测截图
 ├── docs/cost.md               # N 越大越省：实测证据与定价换算
 ├── docs/overhead-vs-n.svg     # 开销随 N 变化的曲线（与文档同源生成）
-├── docs/auto-resume.md        # 说了就停的成因与自动续跑的六道刹车
+├── docs/auto-resume.md        # 说了就停的成因与自动续跑的六道刹车（含空回复崩溃例外）
 └── tools/
     ├── snapshot.mjs           # 一次扫描出「实测数据」整张表的数字（JSON）
     ├── n-scaling-report.mjs   # 跨会话统计：实测 P/R/B 并画出 N 对照表
