@@ -107,8 +107,8 @@ github.com/cxv117793-blip/dsh-step-pause
 |---|---|---|
 | `x-card-before-after.png` | 痛点对比：左边一屏工具调用「第 41 步它还在跑，你在猜」，右边一张 4 行进度小结 | A / B / E / Thread 1 |
 | `x-card-mechanism.png` | 原理：① 本步输入 → ② 追加一条 → ③ 一次响应，底部「另起一次请求 vs 追加进本步批次」 | D / Thread 2 |
-| `poster.png` | 竖版封面 | A / C |
-| `dsh-step-pause-promo-final.mp4` | 52 秒宣传片，可截 6 秒 GIF | C |
+| `poster.png` | 封面（1920×1080） | A / C |
+| `dsh-step-pause-promo-final.mp4` | 60 秒宣传片（蓝白 + 配乐），可截 6 秒 GIF | C |
 
 两张卡片都是 1200×675（16:9），X 单图与四图布局都能直接吃下。
 
