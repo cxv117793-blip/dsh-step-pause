@@ -75,9 +75,12 @@ https://github.com/cxv117793-blip/dsh-step-pause/releases/download/v0.5.0/dsh-st
 
 ## 宣传片（60 秒 · 蓝白 · 配乐）
 
-[![宣传片封面](docs/promo/poster.png)](docs/promo/dsh-step-pause-promo-final.mp4)
+[![宣传片封面](docs/promo/poster.png)](https://cdn.jsdelivr.net/gh/cxv117793-blip/dsh-step-pause@main/docs/promo/dsh-step-pause-promo-final.mp4)
 
-点封面看 60 秒 1080p 宣传片，七幕一路走完：
+▶ 点封面直接在浏览器里播放（1920×1080 / 60 秒 / 有配乐，可拖进度条）。
+想下载原文件：[docs/promo/dsh-step-pause-promo-final.mp4](docs/promo/dsh-step-pause-promo-final.mp4)。
+
+七幕一路走完：
 
 | 时间 | 幕 | 讲什么 |
 | --- | --- | --- |
